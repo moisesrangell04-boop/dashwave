@@ -383,6 +383,7 @@ export class AiService {
         'https://api.openai.com/v1/chat/completions',
         { model, messages, temperature, max_tokens: maxTokens },
         {
+          timeout: 30000,
           headers: {
             Authorization: `Bearer ${apiKey}`,
             'Content-Type': 'application/json',
@@ -421,6 +422,7 @@ export class AiService {
           max_tokens: maxTokens,
         },
         {
+          timeout: 30000,
           headers: {
             'x-api-key': apiKey,
             'anthropic-version': '2023-06-01',
@@ -464,6 +466,7 @@ export class AiService {
           },
         },
         {
+          timeout: 30000,
           params: { key: apiKey },
           headers: { 'Content-Type': 'application/json' },
         },

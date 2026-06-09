@@ -21,6 +21,12 @@ import { AiModule } from './modules/ai/ai.module';
 import { AutomationModule } from './modules/automation/automation.module';
 import { ReportModule } from './modules/report/report.module';
 import { WebhookModule } from './modules/webhook/webhook.module';
+import { UserModule } from './modules/user/user.module';
+import { HealthModule } from './modules/health/health.module';
+import { ApiKeysModule } from './modules/api-keys/api-keys.module';
+import { NotificationModule } from './modules/notification/notification.module';
+import { MailerModule } from './infra/mail/mailer.module';
+import { GatewayModule } from './modules/gateway/gateway.module';
 
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
@@ -83,6 +89,12 @@ import { JwtStrategy } from './common/strategies/jwt.strategy';
     AutomationModule,
     ReportModule,
     WebhookModule,
+    UserModule,
+    HealthModule,
+    MailerModule,
+    GatewayModule,
+    ApiKeysModule,
+    NotificationModule,
   ],
   providers: [
     PrismaService,

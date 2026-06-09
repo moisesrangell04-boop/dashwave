@@ -12,15 +12,23 @@ export class ReportService {
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
 
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
     const [
       conversationsToday,
       activeConversations,
       totalConversations,
       resolvedConversations,
       totalMessages,
-      leadsByStage,
+      leadsByStageRaw,
       totalLeads,
       convertedLeads,
+      unreadCount,
+      totalContacts,
+      activeAgents,
+      pipelines,
+      recentMessages,
     ] = await Promise.all([
       this.prisma.conversation.count({
         where: { tenantId, workspaceId, createdAt: { gte: startOfToday } },
@@ -42,7 +50,56 @@ export class ReportService {
       this.prisma.lead.count({
         where: { tenantId, workspaceId, status: 'converted' },
       }),
+      this.prisma.conversation.count({
+        where: { tenantId, workspaceId, unreadCount: { gt: 0 } },
+      }),
+      this.prisma.contact.count({ where: { tenantId, workspaceId } }),
+      this.prisma.aIAgent.count({
+        where: { tenantId, workspaceId, isActive: true },
+      }),
+      this.prisma.pipeline.findMany({
+        where: { tenantId, workspaceId, isActive: true },
+        select: { id: true, stages: true },
+      }),
+      this.prisma.message.findMany({
+        where: {
+          tenantId,
+          workspaceId,
+          createdAt: { gte: thirtyDaysAgo },
+        },
+        select: { direction: true, createdAt: true },
+        orderBy: { createdAt: 'asc' },
+      }),
     ]);
+
+    const stageNameMap = new Map<string, { name: string; color: string }>();
+    for (const pipeline of pipelines) {
+      for (const stage of (pipeline.stages as any[]) ?? []) {
+        stageNameMap.set(stage.id, { name: stage.name, color: stage.color || '#6366f1' });
+      }
+    }
+
+    const leadsByStage = leadsByStageRaw.map((s) => ({
+      stageId: s.stageId,
+      stageName: stageNameMap.get(s.stageId)?.name || s.stageId,
+      count: s._count.id,
+      color: stageNameMap.get(s.stageId)?.color || '#6366f1',
+    }));
+
+    const messageVolumeMap = new Map<string, { inbound: number; outbound: number }>();
+    for (const msg of recentMessages) {
+      const date = msg.createdAt.toISOString().slice(0, 10);
+      if (!messageVolumeMap.has(date)) {
+        messageVolumeMap.set(date, { inbound: 0, outbound: 0 });
+      }
+      const entry = messageVolumeMap.get(date)!;
+      if (msg.direction === 'inbound') entry.inbound++;
+      else entry.outbound++;
+    }
+
+    const messageVolume = Array.from(messageVolumeMap.entries())
+      .map(([date, counts]) => ({ date, ...counts }))
+      .sort((a, b) => a.date.localeCompare(b.date));
 
     const resolutionRate = totalConversations > 0
       ? Math.round((resolvedConversations / totalConversations) * 100)
@@ -55,6 +112,9 @@ export class ReportService {
       activeConversations,
       totalConversations,
       totalMessages,
+      unreadCount,
+      totalContacts,
+      activeAgents,
       avgResponseTime,
       resolutionRate,
       leadsByStage,
@@ -63,6 +123,7 @@ export class ReportService {
       conversionRate: totalLeads > 0
         ? Math.round((convertedLeads / totalLeads) * 100)
         : 0,
+      messageVolume,
     };
   }
 
@@ -83,11 +144,36 @@ export class ReportService {
 
     const conversations = await this.prisma.conversation.findMany({
       where,
-      select: { createdAt: true, status: true },
+      select: { id: true, createdAt: true, status: true },
       orderBy: { createdAt: 'asc' },
     });
 
-    const timeSeries = this.groupByTime(conversations, groupBy);
+    const conversationIds = conversations.map((c) => c.id);
+
+    const firstMessages = conversationIds.length > 0
+      ? await this.prisma.message.findMany({
+          where: { conversationId: { in: conversationIds }, tenantId, workspaceId },
+          select: { conversationId: true, direction: true, createdAt: true },
+          orderBy: { createdAt: 'asc' },
+          distinct: ['conversationId'],
+        })
+      : [];
+
+    const firstMsgDirection = new Map(firstMessages.map((m) => [m.conversationId, m.direction]));
+
+    const dayMap = new Map<string, { inbound: number; outbound: number }>();
+    for (const conv of conversations) {
+      const date = conv.createdAt.toISOString().slice(0, 10);
+      if (!dayMap.has(date)) dayMap.set(date, { inbound: 0, outbound: 0 });
+      const dir = firstMsgDirection.get(conv.id) ?? 'inbound';
+      if (dir === 'outbound') dayMap.get(date)!.outbound++;
+      else dayMap.get(date)!.inbound++;
+    }
+
+    const timeSeries = Array.from(dayMap.entries())
+      .map(([date, counts]) => ({ date, ...counts }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+
     const statusDistribution = await this.getStatusDistribution(tenantId, workspaceId, where);
 
     return { timeSeries, statusDistribution };
@@ -170,12 +256,22 @@ export class ReportService {
       this.prisma.message.count({ where }),
       this.prisma.message.findMany({
         where,
-        select: { createdAt: true },
+        select: { createdAt: true, direction: true },
         orderBy: { createdAt: 'asc' },
       }),
     ]);
 
-    const byDay = this.groupByTime(messages, 'day');
+    const dayMap = new Map<string, { inbound: number; outbound: number }>();
+    for (const msg of messages) {
+      const date = msg.createdAt.toISOString().slice(0, 10);
+      if (!dayMap.has(date)) dayMap.set(date, { inbound: 0, outbound: 0 });
+      const entry = dayMap.get(date)!;
+      if (msg.direction === 'inbound') entry.inbound++;
+      else entry.outbound++;
+    }
+    const byDay = Array.from(dayMap.entries())
+      .map(([date, counts]) => ({ date, ...counts }))
+      .sort((a, b) => a.date.localeCompare(b.date));
 
     return { total, byDirection, byOrigin, byDay };
   }
@@ -210,8 +306,15 @@ export class ReportService {
     const countMap = new Map(messageCounts.map((m) => [m.aiAgentId, m._count.id]));
 
     return agents.map((agent) => ({
-      ...agent,
-      totalMessages: countMap.get(agent.id) ?? 0,
+      id: agent.id,
+      agentName: agent.name,
+      isActive: agent.isActive,
+      conversations: agent.totalConversationsHandled,
+      messages: countMap.get(agent.id) ?? agent.totalMessagesSent ?? 0,
+      avgResponseTime: agent.avgResponseTime,
+      satisfaction: agent.satisfactionRate,
+      lastActivity: agent.lastActiveAt ? agent.lastActiveAt.toISOString() : null,
+      createdAt: agent.createdAt,
     }));
   }
 
@@ -232,31 +335,32 @@ export class ReportService {
 
     const userIds = users.map((u) => u.id);
 
-    const conversationsByUser = userIds.length > 0
-      ? await this.prisma.conversation.groupBy({
-          by: ['assignedUserId'],
-          where: { assignedUserId: { in: userIds }, tenantId, workspaceId },
-          _count: { id: true },
-        })
-      : [];
+    const [conversationsByUser, resolvedByUser] = await Promise.all([
+      userIds.length > 0
+        ? this.prisma.conversation.groupBy({
+            by: ['assignedUserId'],
+            where: { assignedUserId: { in: userIds }, tenantId, workspaceId },
+            _count: { id: true },
+          })
+        : Promise.resolve([]),
+      userIds.length > 0
+        ? this.prisma.conversation.groupBy({
+            by: ['assignedUserId'],
+            where: { assignedUserId: { in: userIds }, tenantId, workspaceId, status: 'resolved' },
+            _count: { id: true },
+          })
+        : Promise.resolve([]),
+    ]);
 
     const convCountMap = new Map(
       conversationsByUser.map((c) => [c.assignedUserId, c._count.id]),
     );
+    const resolvedCountMap = new Map(
+      resolvedByUser.map((c) => [c.assignedUserId, c._count.id]),
+    );
 
     const teamData = await Promise.all(
       users.map(async (user) => {
-        const userMessages = await this.prisma.message.findMany({
-          where: {
-            tenantId,
-            workspaceId,
-            origin: 'human',
-            conversation: { assignedUserId: user.id },
-          },
-          select: { createdAt: true },
-          orderBy: { createdAt: 'asc' },
-        });
-
         const avgResponseTime = await this.calculateAvgResponseTime(tenantId, workspaceId, user.id);
 
         return {
@@ -265,9 +369,10 @@ export class ReportService {
           email: user.email,
           avatar: user.avatar,
           role: user.role,
-          conversationsHandled: convCountMap.get(user.id) ?? 0,
+          conversations: convCountMap.get(user.id) ?? 0,
+          resolved: resolvedCountMap.get(user.id) ?? 0,
           leadsAssigned: user._count.assignedLeads,
-          avgResponseTime,
+          avgTime: avgResponseTime,
         };
       }),
     );

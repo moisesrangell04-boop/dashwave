@@ -329,7 +329,7 @@ export class ConversationService {
     });
   }
 
-  async toggleAI(id: string, tenantId: string, enabled: boolean) {
+  async toggleAI(id: string, tenantId: string, enabled?: boolean) {
     const conversation = await this.prisma.conversation.findFirst({
       where: { id, tenantId },
     });
@@ -338,9 +338,11 @@ export class ConversationService {
       throw new NotFoundException('Conversation not found');
     }
 
+    const aiActive = enabled !== undefined ? enabled : !conversation.aiActive;
+
     return this.prisma.conversation.update({
       where: { id },
-      data: { aiActive: enabled },
+      data: { aiActive },
       include: {
         contact: {
           select: { id: true, name: true, phone: true },

@@ -247,7 +247,7 @@ function PipelineEditor({
   });
 
   const updateMutation = useMutation({
-    mutationFn: (data: any) => api.put(`/pipelines/${pipeline?.id}`, data),
+    mutationFn: (data: any) => api.patch(`/pipelines/${pipeline?.id}`, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['pipelines'] });
       toast.success('Pipeline atualizada com sucesso');
@@ -553,7 +553,7 @@ export default function PipelinesPage() {
   const pipelineList = useMemo(() => pipelines ?? [], [pipelines]);
 
   const setDefaultMutation = useMutation({
-    mutationFn: (id: string) => api.put(`/pipelines/${id}`, { isDefault: true }),
+    mutationFn: (id: string) => api.patch(`/pipelines/${id}`, { isDefault: true }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['pipelines'] });
       toast.success('Pipeline padrão atualizada');

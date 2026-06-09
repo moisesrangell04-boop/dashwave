@@ -77,13 +77,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       password,
     });
 
-    const { user, tenant, accessToken, refreshToken } = response;
+    const { user, accessToken, refreshToken } = response;
+    const tenant = response.tenant || { id: user.tenantId } as Tenant;
 
     localStorage.setItem('wave_access_token', accessToken);
     localStorage.setItem('wave_refresh_token', refreshToken);
     localStorage.setItem('wave_user', JSON.stringify(user));
     localStorage.setItem('wave_tenant_id', tenant.id);
-    if (tenant) {
+    if (tenant.name) {
       localStorage.setItem('wave_tenant', JSON.stringify(tenant));
     }
 

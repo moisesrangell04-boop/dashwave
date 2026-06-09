@@ -1,44 +1,42 @@
 'use client';
 
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Search,
   Plus,
   Filter,
   X,
-  GripVertical,
   Clock,
   User as UserIcon,
   Target,
   DollarSign,
-  Calendar,
-  Tag,
-  FileText,
-  Phone,
-  Mail,
-  MessageSquare,
   ArrowRight,
-  Send,
-  Archive,
   Trash2,
-  CheckCircle,
-  XCircle,
   ChevronDown,
   AlertCircle,
   Loader2,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import {
-  cn,
   formatCurrency,
+  formatPhone,
   formatRelativeTime,
+  cn,
+  statusColor,
   priorityBadge,
-  LEAD_STATUS_LABELS,
-  LEAD_PRIORITY_LABELS,
 } from '@/lib/utils';
+import { useDebounce } from '@/hooks';
 import type { Lead, Pipeline, PipelineStage, Contact, User as UserType, PaginatedResponse } from '@/types';
 import { toast } from 'sonner';
+
+const LEAD_STATUS_LABELS: Record<string, string> = {
+  active: 'Ativo',
+  converted: 'Convertido',
+  lost: 'Perdido',
+  archived: 'Arquivado',
+};
 
 const LEAD_SOURCE_LABELS: Record<string, string> = {
   whatsapp: 'WhatsApp',
@@ -53,20 +51,11 @@ const LEAD_SOURCE_LABELS: Record<string, string> = {
   other: 'Outro',
 };
 
-const STAGE_COLORS = [
-  '#6366f1', '#8b5cf6', '#ec4899', '#f59e0b',
-  '#10b981', '#06b6d4', '#f97316', '#ef4444',
-  '#14b8a6', '#3b82f6', '#a855f7', '#84cc16',
-];
-
-function useDebounce<T>(value: T, delay: number): T {
-  const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
-    const timer = setTimeout(() => setDebounced(value), delay);
-    return () => clearTimeout(timer);
-  }, [value, delay]);
-  return debounced;
-}
+const LEAD_PRIORITY_LABELS: Record<string, string> = {
+  low: 'Baixa',
+  medium: 'Média',
+  high: 'Alta',
+};
 
 function ContactSearchDropdown({
   onSelect,
@@ -83,7 +72,7 @@ function ContactSearchDropdown({
     queryKey: ['contacts', 'search', debouncedSearch],
     queryFn: () =>
       api.get('/contacts', {
-        params: debouncedSearch ? { search: debouncedSearch, limit: 20 } : { limit: 20 },
+        params: debouncedSearch ? { q: debouncedSearch, limit: 20 } : { limit: 20 },
       }),
     enabled: true,
   });
@@ -701,362 +690,6 @@ function CreateLeadModal({
   );
 }
 
-function LeadDetailModal({
-  lead,
-  open,
-  onClose,
-}: {
-  lead: Lead | null;
-  open: boolean;
-  onClose: () => void;
-}) {
-  const queryClient = useQueryClient();
-  const [showMoveMenu, setShowMoveMenu] = useState(false);
-
-  const { data: pipelines } = useQuery<Pipeline[]>({
-    queryKey: ['pipelines'],
-    queryFn: () => api.get('/pipelines'),
-  });
-
-  const moveMutation = useMutation({
-    mutationFn: ({ stageId: newStageId }: { stageId: string }) =>
-      api.post(`/leads/${lead?.id}/move`, { stageId: newStageId }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['leads'] });
-      toast.success('Lead movido com sucesso');
-      setShowMoveMenu(false);
-    },
-    onError: () => toast.error('Erro ao mover lead'),
-  });
-
-  const changeStatusMutation = useMutation({
-    mutationFn: ({ status, reason }: { status: string; reason?: string }) =>
-      api.put(`/leads/${lead?.id}/status`, { status, lostReason: reason }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['leads'] });
-      toast.success('Status do lead alterado');
-      onClose();
-    },
-    onError: () => toast.error('Erro ao alterar status'),
-  });
-
-  const assignMutation = useMutation({
-    mutationFn: ({ userId }: { userId: string }) =>
-      api.put(`/leads/${lead?.id}`, { assignedUserId: userId }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['leads'] });
-      toast.success('Lead atribuído com sucesso');
-    },
-    onError: () => toast.error('Erro ao atribuir lead'),
-  });
-
-  if (!lead) return null;
-
-  const currentPipeline = useMemo(
-    () => (pipelines ?? []).find((p) => p.id === lead.pipelineId),
-    [pipelines, lead.pipelineId],
-  );
-
-  const isConverted = lead.status === 'converted';
-  const isLost = lead.status === 'lost';
-  const isArchived = lead.status === 'archived';
-
-  const activityItems = [
-    { type: 'created', label: 'Lead criado', date: lead.createdAt },
-    ...(lead.convertedAt ? [{ type: 'converted', label: 'Convertido em', date: lead.convertedAt }] : []),
-    ...(lead.lastActivityAt && lead.lastActivityAt !== lead.createdAt
-      ? [{ type: 'activity', label: 'Última atividade', date: lead.lastActivityAt }]
-      : []),
-  ];
-
-  return (
-    <Modal open={open} onClose={onClose} title={lead.title} size="xl">
-      <div className="grid gap-6 lg:grid-cols-3">
-        <div className="space-y-5 lg:col-span-2">
-          <div className="grid grid-cols-2 gap-4 rounded-lg bg-muted/30 p-4">
-            <div>
-              <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Valor</p>
-              <p className="mt-1 text-lg font-bold text-foreground">
-                {lead.value ? formatCurrency(lead.value) : '—'}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Score</p>
-              <p className="mt-1 text-lg font-bold text-foreground">{lead.score}</p>
-            </div>
-            <div>
-              <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Origem</p>
-              <p className="mt-1 text-sm font-medium text-foreground">
-                {LEAD_SOURCE_LABELS[lead.source] || lead.source}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Prioridade</p>
-              <p className="mt-1">
-                <span
-                  className={cn(
-                    'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium',
-                    priorityBadge(lead.priority),
-                  )}
-                >
-                  {LEAD_PRIORITY_LABELS[lead.priority] || lead.priority}
-                </span>
-              </p>
-            </div>
-            <div>
-              <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Status</p>
-              <p className="mt-1 text-sm font-medium text-foreground">
-                {LEAD_STATUS_LABELS[lead.status] || lead.status}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Data Prevista</p>
-              <p className="mt-1 text-sm font-medium text-foreground">
-                {lead.expectedCloseDate
-                  ? new Date(lead.expectedCloseDate).toLocaleDateString('pt-BR')
-                  : '—'}
-              </p>
-            </div>
-          </div>
-
-          {lead.tags.length > 0 && (
-            <div>
-              <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                <Tag className="mr-1 inline h-3.5 w-3.5" />
-                Tags
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {lead.tags.map((tag) => (
-                  <span
-                    key={tag}
-                    className="inline-flex items-center rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground"
-                  >
-                    {tag}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {lead.notes && (
-            <div>
-              <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                <FileText className="mr-1 inline h-3.5 w-3.5" />
-                Anotações
-              </p>
-              <p className="whitespace-pre-wrap text-sm text-foreground">{lead.notes}</p>
-            </div>
-          )}
-
-          {lead.lostReason && (
-            <div>
-              <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                Motivo da Perda
-              </p>
-              <p className="text-sm text-foreground">{lead.lostReason}</p>
-            </div>
-          )}
-
-          <div>
-            <p className="mb-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              <MessageSquare className="mr-1 inline h-3.5 w-3.5" />
-              Atividades
-            </p>
-            <div className="space-y-3">
-              {activityItems.length === 0 ? (
-                <p className="py-2 text-sm text-muted-foreground">Nenhuma atividade registrada</p>
-              ) : (
-                activityItems.map((item, idx) => (
-                  <div key={idx} className="flex items-start gap-3">
-                    <div className="flex h-2 w-2 mt-1.5 rounded-full bg-primary" />
-                    <div>
-                      <p className="text-sm text-foreground">{item.label}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {formatRelativeTime(item.date)}
-                      </p>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        </div>
-
-        <div className="space-y-5">
-          <div className="rounded-lg bg-muted/30 p-4">
-            <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              Contato
-            </p>
-            {lead.contact ? (
-              <div className="space-y-2">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-sm font-medium text-primary">
-                    {lead.contact.name.charAt(0).toUpperCase()}
-                  </div>
-                  <div>
-                    <p className="font-medium text-foreground">{lead.contact.name}</p>
-                    <p className="text-xs text-muted-foreground">{lead.contact.phone}</p>
-                  </div>
-                </div>
-                {lead.contact.email && (
-                  <a
-                    href={`mailto:${lead.contact.email}`}
-                    className="flex items-center gap-2 text-sm text-primary hover:underline"
-                  >
-                    <Mail className="h-3.5 w-3.5" />
-                    {lead.contact.email}
-                  </a>
-                )}
-                <a
-                  href={`tel:${lead.contact.phone}`}
-                  className="flex items-center gap-2 text-sm text-primary hover:underline"
-                >
-                  <Phone className="h-3.5 w-3.5" />
-                  {lead.contact.phone}
-                </a>
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground">Sem contato vinculado</p>
-            )}
-          </div>
-
-          {lead.assignedUser && (
-            <div className="rounded-lg bg-muted/30 p-4">
-              <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                Responsável
-              </p>
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-sm font-medium text-primary">
-                  {lead.assignedUser.avatar ? (
-                    <img src={lead.assignedUser.avatar} alt={lead.assignedUser.name} className="h-10 w-10 rounded-full object-cover" />
-                  ) : (
-                    lead.assignedUser.name.charAt(0).toUpperCase()
-                  )}
-                </div>
-                <div>
-                  <p className="font-medium text-foreground">{lead.assignedUser.name}</p>
-                  <p className="text-xs text-muted-foreground">{lead.assignedUser.email}</p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          <div className="rounded-lg bg-muted/30 p-4">
-            <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              Pipeline
-            </p>
-            <p className="text-sm font-medium text-foreground">{currentPipeline?.name || '—'}</p>
-            {currentPipeline?.stages && (
-              <div className="mt-2 space-y-1">
-                {currentPipeline.stages
-                  .sort((a, b) => a.order - b.order)
-                  .map((stage) => (
-                    <div
-                      key={stage.id}
-                      className={cn(
-                        'flex items-center gap-2 rounded px-2 py-1',
-                        stage.id === lead.stageId ? 'bg-primary/10' : 'opacity-50',
-                      )}
-                    >
-                      <div className="h-2 w-2 rounded-full" style={{ backgroundColor: stage.color }} />
-                      <span className="text-xs text-foreground">{stage.name}</span>
-                      {stage.id === lead.stageId && (
-                        <ArrowRight className="ml-auto h-3 w-3 text-primary" />
-                      )}
-                    </div>
-                  ))}
-              </div>
-            )}
-          </div>
-
-          <div className="space-y-2">
-            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              Ações
-            </p>
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => setShowMoveMenu(!showMoveMenu)}
-                disabled={isConverted || isLost || isArchived}
-                className="flex w-full items-center gap-2 rounded-lg bg-primary/10 px-3 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary/20 disabled:opacity-50"
-              >
-                <ArrowRight className="h-4 w-4" />
-                Mover etapa
-                <ChevronDown className="ml-auto h-4 w-4" />
-              </button>
-              {showMoveMenu && currentPipeline?.stages && (
-                <div className="absolute left-0 right-0 top-full z-10 mt-1 rounded-lg border border-border bg-card shadow-xl">
-                  {currentPipeline.stages
-                    .filter((s) => s.id !== lead.stageId)
-                    .sort((a, b) => a.order - b.order)
-                    .map((stage) => (
-                      <button
-                        key={stage.id}
-                        type="button"
-                        onClick={() => {
-                          moveMutation.mutate({ stageId: stage.id });
-                        }}
-                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-muted"
-                      >
-                        <div className="h-2 w-2 rounded-full" style={{ backgroundColor: stage.color }} />
-                        {stage.name}
-                      </button>
-                    ))}
-                </div>
-              )}
-            </div>
-
-            <button
-              type="button"
-              onClick={() => {
-                const userId = prompt('ID do usuário para atribuir:');
-                if (userId) assignMutation.mutate({ userId });
-              }}
-              className="flex w-full items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
-            >
-              <UserIcon className="h-4 w-4" />
-              Atribuir
-            </button>
-
-            {!isConverted && !isLost && !isArchived && (
-              <button
-                type="button"
-                onClick={() => changeStatusMutation.mutate({ status: 'converted' })}
-                className="flex w-full items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm font-medium text-green-700 transition-colors hover:bg-green-100 dark:border-green-800 dark:bg-green-950 dark:text-green-400 dark:hover:bg-green-900"
-              >
-                <CheckCircle className="h-4 w-4" />
-                Converter
-              </button>
-            )}
-
-            {!isLost && !isConverted && !isArchived && (
-              <button
-                type="button"
-                onClick={() => changeStatusMutation.mutate({ status: 'lost' })}
-                className="flex w-full items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700 transition-colors hover:bg-red-100 dark:border-red-800 dark:bg-red-950 dark:text-red-400 dark:hover:bg-red-900"
-              >
-                <XCircle className="h-4 w-4" />
-                Perder
-              </button>
-            )}
-
-            {!isArchived && (
-              <button
-                type="button"
-                onClick={() => changeStatusMutation.mutate({ status: 'archived' })}
-                className="flex w-full items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted"
-              >
-                <Archive className="h-4 w-4" />
-                Arquivar
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
-    </Modal>
-  );
-}
-
 function LeadCard({
   lead,
   onDragStart,
@@ -1136,6 +769,7 @@ function LeadCard({
 }
 
 export default function LeadsPage() {
+  const router = useRouter();
   const queryClient = useQueryClient();
   const [selectedPipelineId, setSelectedPipelineId] = useState('');
   const [search, setSearch] = useState('');
@@ -1144,7 +778,6 @@ export default function LeadsPage() {
   const [userFilter, setUserFilter] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [draggedLead, setDraggedLead] = useState<Lead | null>(null);
-  const [detailLead, setDetailLead] = useState<Lead | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
 
   const { data: pipelines } = useQuery<Pipeline[]>({
@@ -1466,7 +1099,7 @@ export default function LeadsPage() {
                       key={lead.id}
                       lead={lead}
                       onDragStart={handleDragStart}
-                      onClick={setDetailLead}
+                      onClick={(l) => router.push(`/dashboard/leads/${l.id}`)}
                     />
                   ))}
                   {stageLeads.length === 0 && (
@@ -1484,12 +1117,6 @@ export default function LeadsPage() {
       )}
 
       <CreateLeadModal open={showCreateModal} onClose={() => setShowCreateModal(false)} />
-
-      <LeadDetailModal
-        lead={detailLead}
-        open={!!detailLead}
-        onClose={() => setDetailLead(null)}
-      />
     </div>
   );
 }

@@ -187,6 +187,8 @@ model Tenant {
   aiAgents         AIAgent[]
   automations      Automation[]
   webhookConfigurations WebhookConfiguration[]
+  apiKeys              ApiKey[]
+  notifications        Notification[]
 }
 
 model Workspace {
@@ -234,6 +236,8 @@ model User {
   workspace     Workspace?     @relation(fields: [workspaceId], references: [id])
   assignedLeads   Lead[]              @relation("AssignedLeads")
   assignedConversations Conversation[] @relation("AssignedConversations")
+
+  notifications Notification[]
 
   @@index([tenantId])
   @@index([email])
@@ -526,4 +530,41 @@ model WebhookConfiguration {
   updatedAt   DateTime @updatedAt
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+model ApiKey {
+  id        String   @id @default(uuid())
+  tenantId  String
+  name      String
+  key       String   @unique
+  lastUsedAt DateTime?
+  expiresAt DateTime?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([key])
+}
+
+model Notification {
+  id         String   @id @default(uuid())
+  tenantId   String
+  userId     String?
+  type       String
+  title      String
+  message    String?
+  entityType String?
+  entityId   String?
+  isRead     Boolean  @default(false)
+  readAt     DateTime?
+  createdAt  DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User?  @relation(fields: [userId], references: [id])
+
+  @@index([tenantId, userId])
+  @@index([tenantId, createdAt])
 }

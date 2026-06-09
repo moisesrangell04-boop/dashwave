@@ -1,6 +1,6 @@
 import axios, { AxiosInstance, AxiosRequestConfig, InternalAxiosRequestConfig } from 'axios';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api/v1';
 
 class ApiClient {
   private client: AxiosInstance;
@@ -20,9 +20,7 @@ class ApiClient {
         if (token) {
           config.headers.Authorization = `Bearer ${token}`;
         }
-        if (tenantId) {
-          config.headers['x-tenant-id'] = tenantId;
-        }
+        config.headers['x-tenant-id'] = tenantId || 'default';
       }
       return config;
     });
@@ -32,8 +30,8 @@ class ApiClient {
       async (error) => {
         const originalRequest = error.config;
 
-        if (error.response?.status === 401 && !originalRequest._retry) {
-          originalRequest._retry = true;
+        if (error.response?.status === 401 && !(originalRequest as any)._retry) {
+          (originalRequest as any)._retry = true;
 
           try {
             const token = await this.refreshAccessToken();

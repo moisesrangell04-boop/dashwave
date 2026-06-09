@@ -294,6 +294,20 @@ export interface PaginatedResponse<T> {
   totalPages: number;
 }
 
+export interface Notification {
+  id: string;
+  tenantId: string;
+  userId?: string;
+  type: string;
+  title: string;
+  message?: string;
+  entityType?: string;
+  entityId?: string;
+  isRead: boolean;
+  readAt?: string;
+  createdAt: string;
+}
+
 export interface ApiError {
   success: false;
   statusCode: number;

@@ -118,10 +118,6 @@ export default function ReportsPage() {
 
   const periodLabel = PERIODS.find((p) => p.key === period)?.label || 'Personalizado';
 
-  const periodParam = period === 'custom'
-    ? { startDate: customStart, endDate: customEnd }
-    : { period };
-
   const dateRange = useMemo(() => {
     const today = new Date();
     let start: Date;
@@ -139,42 +135,44 @@ export default function ReportsPage() {
     return `${s} — ${e}`;
   }, [dateRange]);
 
+  const dateParam = period === 'custom'
+    ? { startDate: new Date(customStart).toISOString(), endDate: new Date(customEnd).toISOString() }
+    : { startDate: dateRange.start.toISOString(), endDate: dateRange.end.toISOString() };
+
   const { data: summary, isLoading: summaryLoading, isError: summaryError, refetch: refetchSummary } = useQuery({
-    queryKey: ['reports', 'summary', periodParam],
-    queryFn: () => api.get('/reports/summary', {
-      params: { ...periodParam },
-    }),
+    queryKey: ['reports', 'summary'],
+    queryFn: () => api.get('/reports/dashboard'),
+    staleTime: 0,
   });
 
   const { data: conversationsChart, isLoading: conversationsLoading } = useQuery({
-    queryKey: ['reports', 'conversations', periodParam],
-    queryFn: () => api.get('/reports/conversations', {
-      params: { ...periodParam },
-    }),
+    queryKey: ['reports', 'conversations', dateParam],
+    queryFn: () => api.get('/reports/conversations', { params: dateParam }),
+    staleTime: 0,
   });
 
   const { data: leadsFunnel, isLoading: funnelLoading } = useQuery({
-    queryKey: ['reports', 'leads-funnel', periodParam],
-    queryFn: () => api.get('/reports/leads-funnel', {
-      params: { ...periodParam },
-    }),
+    queryKey: ['reports', 'leads'],
+    queryFn: () => api.get('/reports/leads'),
+    staleTime: 0,
   });
 
   const { data: messageVolume, isLoading: volumeLoading } = useQuery({
-    queryKey: ['reports', 'message-volume', periodParam],
-    queryFn: () => api.get('/reports/message-volume', {
-      params: { ...periodParam },
-    }),
+    queryKey: ['reports', 'messages', dateParam],
+    queryFn: () => api.get('/reports/messages', { params: dateParam }),
+    staleTime: 0,
   });
 
   const { data: agentPerformance, isLoading: agentLoading } = useQuery({
-    queryKey: ['reports', 'agent-performance'],
-    queryFn: () => api.get('/reports/agent-performance'),
+    queryKey: ['reports', 'agents'],
+    queryFn: () => api.get('/reports/agents'),
+    staleTime: 0,
   });
 
   const { data: teamPerformance, isLoading: teamLoading } = useQuery({
-    queryKey: ['reports', 'team-performance'],
-    queryFn: () => api.get('/reports/team-performance'),
+    queryKey: ['reports', 'team'],
+    queryFn: () => api.get('/reports/team'),
+    staleTime: 0,
   });
 
   const isLoading = summaryLoading || conversationsLoading || funnelLoading || volumeLoading || agentLoading || teamLoading;
@@ -215,29 +213,34 @@ export default function ReportsPage() {
 
   const conversationsData = useMemo(() => {
     if (!conversationsChart) return [];
-    return conversationsChart.map((d: any) => ({
-      date: d.date,
-      inbound: d.inbound,
-      outbound: d.outbound,
-      total: (d.inbound || 0) + (d.outbound || 0),
+    const series = conversationsChart.timeSeries || [];
+    return series.map((d: any) => ({
+      date: d.date ?? d.period,
+      inbound: d.inbound ?? d.count ?? 0,
+      outbound: d.outbound ?? 0,
+      total: (d.inbound ?? d.count ?? 0) + (d.outbound ?? 0),
     }));
   }, [conversationsChart]);
 
   const funnelData = useMemo(() => {
     if (!leadsFunnel) return [];
-    return leadsFunnel.map((d: any, idx: number) => ({
-      name: d.stageName,
-      value: d.count,
-      color: d.color || FUNNEL_COLORS[idx % FUNNEL_COLORS.length],
-    }));
+    const items = leadsFunnel.funnel || [];
+    return items.flatMap((p: any) =>
+      (p.stages || []).map((s: any, idx: number) => ({
+        name: s.stageName,
+        value: s.count,
+        color: s.color || FUNNEL_COLORS[idx % FUNNEL_COLORS.length],
+      }))
+    );
   }, [leadsFunnel]);
 
   const volumeData = useMemo(() => {
     if (!messageVolume) return [];
-    return messageVolume.map((d: any) => ({
-      date: d.date,
-      inbound: d.inbound,
-      outbound: d.outbound,
+    const days = messageVolume.byDay || [];
+    return days.map((d: any) => ({
+      date: d.date ?? d.period,
+      inbound: d.inbound ?? 0,
+      outbound: d.outbound ?? 0,
     }));
   }, [messageVolume]);
 
@@ -410,8 +413,10 @@ export default function ReportsPage() {
                   tickLine={false}
                   axisLine={false}
                   tickFormatter={(val) => {
+                    if (!val) return '';
                     const d = new Date(val);
-                    return `${d.getDate()}/${d.getMonth() + 1}`;
+                    if (isNaN(d.getTime())) return '';
+                    return `${d.getUTCDate()}/${d.getUTCMonth() + 1}`;
                   }}
                 />
                 <YAxis
@@ -517,8 +522,10 @@ export default function ReportsPage() {
                       tickLine={false}
                       axisLine={false}
                       tickFormatter={(val) => {
+                        if (!val) return '';
                         const d = new Date(val);
-                        return `${d.getDate()}/${d.getMonth() + 1}`;
+                        if (isNaN(d.getTime())) return '';
+                        return `${d.getUTCDate()}/${d.getUTCMonth() + 1}`;
                       }}
                     />
                     <YAxis
@@ -573,44 +580,51 @@ export default function ReportsPage() {
                     </td>
                   </tr>
                 ) : (
-                  agents.map((agent: any, idx: number) => (
+                  agents.map((agent: any, idx: number) => {
+                    const agentName = agent.agentName ?? agent.name ?? '—';
+                    const conversations = agent.conversations ?? 0;
+                    const messages = agent.messages ?? 0;
+                    const satisfaction = agent.satisfaction;
+                    const lastActivity = agent.lastActivity;
+                    return (
                     <tr key={agent.id || idx} className="transition-colors hover:bg-muted/50">
                       <td className="whitespace-nowrap px-6 py-4">
                         <div className="flex items-center gap-3">
                           <div className="flex h-8 w-8 items-center justify-center rounded-full bg-purple-500/10 text-sm font-medium text-purple-500">
-                            {agent.agentName?.charAt(0).toUpperCase() || 'A'}
+                            {agentName.charAt(0).toUpperCase()}
                           </div>
-                          <span className="text-sm font-medium text-foreground">{agent.agentName || '—'}</span>
+                          <span className="text-sm font-medium text-foreground">{agentName}</span>
                         </div>
                       </td>
                       <td className="whitespace-nowrap px-6 py-4 text-right text-sm text-foreground">
-                        {agent.conversations?.toLocaleString('pt-BR') || '0'}
+                        {conversations.toLocaleString('pt-BR')}
                       </td>
                       <td className="whitespace-nowrap px-6 py-4 text-right text-sm text-foreground">
-                        {agent.messages?.toLocaleString('pt-BR') || '0'}
+                        {messages.toLocaleString('pt-BR')}
                       </td>
                       <td className="whitespace-nowrap px-6 py-4 text-right text-sm text-foreground">
                         {agent.avgResponseTime != null ? formatSeconds(agent.avgResponseTime) : '—'}
                       </td>
                       <td className="whitespace-nowrap px-6 py-4 text-right">
-                        {agent.satisfaction != null ? (
+                        {satisfaction != null ? (
                           <span className={cn(
                             'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium',
-                            agent.satisfaction >= 80 ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300' :
-                            agent.satisfaction >= 60 ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300' :
+                            satisfaction >= 80 ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300' :
+                            satisfaction >= 60 ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300' :
                             'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300',
                           )}>
-                            {agent.satisfaction}%
+                            {satisfaction}%
                           </span>
                         ) : (
                           '—'
                         )}
                       </td>
                       <td className="whitespace-nowrap px-6 py-4 text-right text-sm text-muted-foreground">
-                        {agent.lastActivity ? format(new Date(agent.lastActivity), 'dd/MM/yyyy HH:mm') : '—'}
+                        {lastActivity ? format(new Date(lastActivity), 'dd/MM/yyyy HH:mm') : '—'}
                       </td>
                     </tr>
-                  ))
+                    );
+                  })
                 )}
               </tbody>
             </table>
@@ -647,27 +661,35 @@ export default function ReportsPage() {
                     </td>
                   </tr>
                 ) : (
-                  team.map((member: any, idx: number) => (
-                    <tr key={member.id || idx} className="transition-colors hover:bg-muted/50">
+                  team.map((member: any, idx: number) => {
+                    const conversations = member.conversations ?? 0;
+                    const resolved = member.resolved ?? 0;
+                    const avgTime = member.avgTime;
+                    return (
+                    <tr key={member.userId || member.id || idx} className="transition-colors hover:bg-muted/50">
                       <td className="whitespace-nowrap px-6 py-4">
                         <div className="flex items-center gap-3">
                           <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-sm font-medium text-primary">
                             {member.name?.charAt(0).toUpperCase() || '?'}
                           </div>
-                          <span className="text-sm font-medium text-foreground">{member.name || '—'}</span>
+                          <div>
+                            <p className="text-sm font-medium text-foreground">{member.name || '—'}</p>
+                            <p className="text-xs text-muted-foreground">{member.email || ''}</p>
+                          </div>
                         </div>
                       </td>
                       <td className="whitespace-nowrap px-6 py-4 text-right text-sm text-foreground">
-                        {member.conversations?.toLocaleString('pt-BR') || '0'}
+                        {conversations.toLocaleString('pt-BR')}
                       </td>
                       <td className="whitespace-nowrap px-6 py-4 text-right text-sm text-foreground">
-                        {member.resolved?.toLocaleString('pt-BR') || '0'}
+                        {resolved.toLocaleString('pt-BR')}
                       </td>
                       <td className="whitespace-nowrap px-6 py-4 text-right text-sm text-foreground">
-                        {member.avgTime != null ? formatSeconds(member.avgTime) : '—'}
+                        {avgTime != null ? formatSeconds(avgTime) : '—'}
                       </td>
                     </tr>
-                  ))
+                    );
+                  })
                 )}
               </tbody>
             </table>

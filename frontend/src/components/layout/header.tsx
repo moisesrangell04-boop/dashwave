@@ -2,11 +2,11 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { useTheme } from 'next-themes';
+import { useRouter } from 'next/navigation';
 import { useAuth } from '@/providers/auth-context';
 import { cn } from '@/lib/utils';
 import {
   Search,
-  Bell,
   Sun,
   Moon,
   User,
@@ -14,6 +14,7 @@ import {
   LogOut,
   Menu,
 } from 'lucide-react';
+import { NotificationDropdown } from '@/components/features/notification-dropdown';
 
 interface HeaderProps {
   title?: string;
@@ -21,9 +22,11 @@ interface HeaderProps {
 }
 
 export function Header({ title, onMenuToggle }: HeaderProps) {
+  const router = useRouter();
   const { theme, setTheme } = useTheme();
   const { user, logout } = useAuth();
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -35,6 +38,13 @@ export function Header({ title, onMenuToggle }: HeaderProps) {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  function handleSearchKeyDown(e: React.KeyboardEvent) {
+    if (e.key === 'Enter' && searchQuery.trim()) {
+      router.push(`/dashboard/contacts?q=${encodeURIComponent(searchQuery.trim())}`);
+      setSearchQuery('');
+    }
+  }
 
   return (
     <header className="flex h-16 items-center justify-between border-b border-gray-200 bg-white px-4 dark:border-gray-800 dark:bg-gray-950">
@@ -57,7 +67,10 @@ export function Header({ title, onMenuToggle }: HeaderProps) {
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
           <input
             type="text"
-            placeholder="Pesquisar..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={handleSearchKeyDown}
+            placeholder="Pesquisar contatos..."
             className="w-64 rounded-lg border border-gray-300 bg-gray-50 py-2 pl-10 pr-4 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-wave-500 dark:border-gray-700 dark:bg-gray-900 dark:text-white dark:placeholder-gray-500"
           />
           <kbd className="absolute right-3 top-1/2 hidden -translate-y-1/2 rounded border border-gray-300 bg-white px-1.5 py-0.5 text-xs text-gray-400 dark:border-gray-600 dark:bg-gray-800 md:inline">
@@ -65,13 +78,7 @@ export function Header({ title, onMenuToggle }: HeaderProps) {
           </kbd>
         </div>
 
-        <button className="relative rounded-lg p-2 text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800">
-          <Bell className="h-5 w-5" />
-          <span className="absolute right-1.5 top-1.5 flex h-2 w-2">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75" />
-            <span className="relative inline-flex h-2 w-2 rounded-full bg-red-500" />
-          </span>
-        </button>
+        <NotificationDropdown />
 
         <button
           onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}

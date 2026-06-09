@@ -234,6 +234,37 @@ function ConfirmDialog({
   );
 }
 
+function hexToHSL(hex: string): string {
+  const r = parseInt(hex.slice(1, 3), 16) / 255;
+  const g = parseInt(hex.slice(3, 5), 16) / 255;
+  const b = parseInt(hex.slice(5, 7), 16) / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  let h = 0;
+  let s = 0;
+  const l = (max + min) / 2;
+  if (max !== min) {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    switch (max) {
+      case r: h = ((g - b) / d + (g < b ? 6 : 0)) / 6; break;
+      case g: h = ((b - r) / d + 2) / 6; break;
+      case b: h = ((r - g) / d + 4) / 6; break;
+    }
+  }
+  return `${Math.round(h * 360)} ${Math.round(s * 100)}% ${Math.round(l * 100)}%`;
+}
+
+function applyPrimaryColor(hex: string) {
+  if (typeof document === 'undefined' || !hex || !hex.startsWith('#')) return;
+  try {
+    const hsl = hexToHSL(hex);
+    document.documentElement.style.setProperty('--primary', hsl);
+    document.documentElement.style.setProperty('--ring', hsl);
+    document.documentElement.style.setProperty('--sidebar-accent', hsl);
+  } catch {}
+}
+
 function GeralTab() {
   const queryClient = useQueryClient();
   const [name, setName] = useState('');
@@ -243,21 +274,24 @@ function GeralTab() {
 
   const { data: tenant, isLoading } = useQuery<Tenant>({
     queryKey: ['tenant'],
-    queryFn: () => api.get('/tenant'),
+    queryFn: () => api.get('/tenants/current'),
   });
 
   useEffect(() => {
     if (tenant) {
       setName(tenant.name);
       setSlug(tenant.slug);
-      setPrimaryColor(tenant.primaryColor || '#6366f1');
+      const color = tenant.primaryColor || '#6366f1';
+      setPrimaryColor(color);
+      applyPrimaryColor(color);
       setLogoPreview(tenant.logo || '');
     }
   }, [tenant]);
 
   const updateMutation = useMutation({
-    mutationFn: (data: any) => api.patch('/tenant', data),
+    mutationFn: (data: any) => api.patch('/tenants/current', data),
     onSuccess: () => {
+      applyPrimaryColor(primaryColor);
       queryClient.invalidateQueries({ queryKey: ['tenant'] });
       toast.success('Configurações salvas com sucesso');
     },
@@ -352,13 +386,21 @@ function GeralTab() {
           <input
             type="color"
             value={primaryColor}
-            onChange={(e) => setPrimaryColor(e.target.value)}
+            onChange={(e) => {
+              setPrimaryColor(e.target.value);
+              applyPrimaryColor(e.target.value);
+            }}
             className="h-10 w-10 cursor-pointer rounded-lg border-0 p-0.5"
           />
           <input
             type="text"
             value={primaryColor}
-            onChange={(e) => setPrimaryColor(e.target.value)}
+            onChange={(e) => {
+              setPrimaryColor(e.target.value);
+              if (e.target.value.match(/^#[0-9a-fA-F]{6}$/)) {
+                applyPrimaryColor(e.target.value);
+              }
+            }}
             className="rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring w-28"
           />
           <div className="flex gap-1.5">
@@ -366,7 +408,10 @@ function GeralTab() {
               <button
                 key={color}
                 type="button"
-                onClick={() => setPrimaryColor(color)}
+                onClick={() => {
+                  setPrimaryColor(color);
+                  applyPrimaryColor(color);
+                }}
                 className={cn(
                   'h-7 w-7 rounded-full transition-transform',
                   primaryColor === color ? 'scale-110 ring-2 ring-ring ring-offset-2 ring-offset-card' : 'hover:scale-110',
@@ -935,7 +980,7 @@ function ConnectInstanceModal({
 function PlanosTab() {
   const { data: tenant, isLoading } = useQuery<Tenant>({
     queryKey: ['tenant'],
-    queryFn: () => api.get('/tenant'),
+    queryFn: () => api.get('/tenants/current'),
   });
 
   const { data: usersData } = useQuery<any>({
@@ -1213,24 +1258,34 @@ function APITab() {
 
   const { data: webhooks, isLoading: whLoading } = useQuery<any[]>({
     queryKey: ['webhooks'],
-    queryFn: () => api.get('/webhooks'),
+    queryFn: () => api.get('/webhooks/config'),
   });
 
-  const { data: apiKeys, isLoading: keysLoading } = useQuery<any[]>({
+  const { data: apiKeys, isLoading: keysLoading } = useQuery<any>({
     queryKey: ['api-keys'],
     queryFn: () => api.get('/api-keys'),
   });
 
   const webhookList = useMemo(() => webhooks ?? [], [webhooks]);
-  const apiKeyList = useMemo(() => apiKeys ?? [], [apiKeys]);
+  const apiKeyList = useMemo(() => apiKeys?.data ?? [], [apiKeys]);
 
   const deleteWebhookMutation = useMutation({
-    mutationFn: (id: string) => api.delete(`/webhooks/${id}`),
+    mutationFn: (id: string) => api.delete(`/webhooks/config/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['webhooks'] });
       toast.success('Webhook excluído');
     },
     onError: () => toast.error('Erro ao excluir webhook'),
+  });
+
+  const createApiKeyMutation = useMutation({
+    mutationFn: (name: string) => api.post('/api-keys', { name }),
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ['api-keys'] });
+      navigator.clipboard.writeText(data.key);
+      toast.success(`Chave "${data.name}" gerada e copiada!`);
+    },
+    onError: () => toast.error('Erro ao gerar chave'),
   });
 
   const deleteApiKeyMutation = useMutation({
@@ -1339,12 +1394,17 @@ function APITab() {
           </div>
           <button
             onClick={() => {
-              /* TODO: generate API key flow */
-              toast.success('Chave API gerada');
+              const name = prompt('Nome para a chave de API:');
+              if (name) createApiKeyMutation.mutate(name);
             }}
-            className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+            disabled={createApiKeyMutation.isPending}
+            className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-50"
           >
-            <Plus className="h-4 w-4" />
+            {createApiKeyMutation.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Plus className="h-4 w-4" />
+            )}
             Gerar Chave
           </button>
         </div>
@@ -1509,7 +1569,7 @@ function WebhookModal({
   }, [editingWebhook, open]);
 
   const createMutation = useMutation({
-    mutationFn: (data: any) => api.post('/webhooks', data),
+    mutationFn: (data: any) => api.post('/webhooks/config', data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['webhooks'] });
       toast.success('Webhook criado');
@@ -1519,7 +1579,7 @@ function WebhookModal({
   });
 
   const updateMutation = useMutation({
-    mutationFn: (data: any) => api.patch(`/webhooks/${editingWebhook?.id}`, data),
+    mutationFn: (data: any) => api.patch(`/webhooks/config/${editingWebhook?.id}`, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['webhooks'] });
       toast.success('Webhook atualizado');

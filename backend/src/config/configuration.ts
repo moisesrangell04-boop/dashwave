@@ -2,7 +2,8 @@ export default () => ({
   port: parseInt(process.env.PORT || '4000', 10),
   frontendUrl: process.env.FRONTEND_URL || 'http://localhost:3000',
   jwt: {
-    secret: process.env.JWT_SECRET || 'super-secret-jwt-key-change-in-production',
+    secret: process.env.JWT_SECRET,
+    refreshSecret: process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET,
     expiresIn: process.env.JWT_EXPIRES_IN || '15m',
     refreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d',
   },
@@ -30,7 +31,7 @@ export default () => ({
     },
     anthropic: {
       apiKey: process.env.ANTHROPIC_API_KEY || '',
-      defaultModel: process.env.ANTHROPIC_DEFAULT_MODEL || 'claude-3-opus-20240229',
+      defaultModel: process.env.ANTHROPIC_DEFAULT_MODEL || 'claude-sonnet-4-6',
     },
     gemini: {
       apiKey: process.env.GEMINI_API_KEY || '',

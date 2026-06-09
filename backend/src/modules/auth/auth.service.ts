@@ -10,6 +10,8 @@ import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import * as speakeasy from 'speakeasy';
 import { PrismaService } from '../../infra/database/prisma/prisma.service';
+import { RedisCacheService } from '../../infra/cache/redis-cache.service';
+import { MailerService } from '../../infra/mail/mailer.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 
@@ -34,6 +36,8 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
+    private readonly cache: RedisCacheService,
+    private readonly mailer: MailerService,
   ) {}
 
   async register(dto: RegisterDto) {
@@ -66,14 +70,6 @@ export class AuthService {
             email: dto.email,
             password: hashedPassword,
             role: 'owner',
-            workspace: {
-              connect: {
-                tenantId_name: {
-                  tenantId: '', // will be set after tenant creation
-                  name: dto.workspaceName || 'Default Workspace',
-                },
-              },
-            },
           },
         },
       },
@@ -178,6 +174,11 @@ export class AuthService {
 
   async refreshToken(refreshToken: string) {
     try {
+      const blacklisted = await this.cache.exists(`rt:blacklist:${refreshToken}`);
+      if (blacklisted) {
+        throw new UnauthorizedException('Token has been revoked');
+      }
+
       const payload = this.jwtService.verify<TokenPayload>(refreshToken, {
         secret: this.configService.get<string>('JWT_REFRESH_SECRET') || this.configService.get<string>('JWT_SECRET'),
       });
@@ -206,6 +207,11 @@ export class AuthService {
     } catch {
       throw new UnauthorizedException('Invalid or expired refresh token');
     }
+  }
+
+  async blacklistToken(refreshToken: string) {
+    // TTL of 7 days in seconds (matches refresh token lifetime)
+    await this.cache.set(`rt:blacklist:${refreshToken}`, '1', 60 * 60 * 24 * 7);
   }
 
   async generateTokens(payload: TokenPayload): Promise<TokenPair> {
@@ -320,12 +326,12 @@ export class AuthService {
       },
     );
 
-    this.logger.log(`Password reset token generated for ${email}: ${resetToken}`);
+    const frontendUrl = this.configService.get<string>('FRONTEND_URL') || 'http://localhost:3000';
+    const resetUrl = `${frontendUrl}/auth/reset-password?token=${resetToken}`;
 
-    return {
-      message: 'If the email exists, a reset link has been sent',
-      ...(process.env.NODE_ENV !== 'production' && { resetToken }),
-    };
+    await this.mailer.sendPasswordReset(email, resetUrl);
+
+    return { message: 'If the email exists, a reset link has been sent' };
   }
 
   async resetPassword(token: string, newPassword: string) {

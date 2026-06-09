@@ -1,6 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, VersioningType } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
+import { IoAdapter } from '@nestjs/platform-socket.io';
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
@@ -8,15 +9,40 @@ import { Logger } from 'nestjs-pino';
 import helmet from 'helmet';
 import compression from 'compression';
 
+function validateEnv() {
+  const required = ['JWT_SECRET', 'DATABASE_URL'];
+  const missing = required.filter((k) => !process.env[k]);
+  if (missing.length > 0) {
+    console.error(`[FATAL] Missing required environment variables: ${missing.join(', ')}`);
+    process.exit(1);
+  }
+  if (process.env.NODE_ENV === 'production') {
+    const prodRequired = ['FRONTEND_URL', 'JWT_REFRESH_SECRET', 'REDIS_HOST'];
+    const missingProd = prodRequired.filter((k) => !process.env[k]);
+    if (missingProd.length > 0) {
+      console.error(`[FATAL] Missing required production variables: ${missingProd.join(', ')}`);
+      process.exit(1);
+    }
+    if (process.env.JWT_SECRET === 'super-secret-jwt-key-change-in-production') {
+      console.error('[FATAL] JWT_SECRET is using the insecure default value. Set a strong secret.');
+      process.exit(1);
+    }
+  }
+}
+
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  validateEnv();
+
+  const app = await NestFactory.create(AppModule, { bufferLogs: true, rawBody: true });
 
   app.useLogger(app.get(Logger));
+  app.useWebSocketAdapter(new IoAdapter(app));
   app.use(helmet());
   app.use(compression());
 
+  const allowedOrigin = process.env.FRONTEND_URL || 'http://localhost:3000';
   app.enableCors({
-    origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+    origin: allowedOrigin,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'x-tenant-id'],

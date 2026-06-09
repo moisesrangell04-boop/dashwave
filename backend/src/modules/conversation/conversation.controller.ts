@@ -166,6 +166,17 @@ export class ConversationController {
     return this.conversationService.toggleAI(id, tenantId, false);
   }
 
+  @Post(':id/ai/toggle')
+  @ApiOperation({ summary: 'Toggle AI agent for conversation' })
+  @ApiResponse({ status: 200, description: 'AI agent toggled successfully' })
+  @ApiResponse({ status: 404, description: 'Conversation not found' })
+  toggleAI(
+    @CurrentUser('tenantId') tenantId: string,
+    @Param('id') id: string,
+  ) {
+    return this.conversationService.toggleAI(id, tenantId);
+  }
+
   @Get(':id/messages')
   @ApiOperation({ summary: 'Get paginated messages for a conversation' })
   @ApiResponse({ status: 200, description: 'Messages retrieved successfully' })

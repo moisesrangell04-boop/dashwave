@@ -130,7 +130,7 @@ export default function DashboardPage() {
     queryKey: ['conversations', 'recent'],
     queryFn: () =>
       api.get('/conversations', {
-        params: { limit: 5, sort: 'lastMessageAt:desc' },
+        params: { limit: 5, sortBy: 'lastMessageAt', sortOrder: 'desc' },
       }),
   });
 
@@ -196,14 +196,14 @@ export default function DashboardPage() {
     },
   ];
 
-  const messageVolumeData = dashboard.messageVolume.map((d) => ({
+  const messageVolumeData = (dashboard.messageVolume || []).map((d) => ({
     date: d.date,
     inbound: d.inbound,
     outbound: d.outbound,
     total: d.inbound + d.outbound,
   }));
 
-  const leadsByStageData = dashboard.leadsByStage.map((s) => ({
+  const leadsByStageData = (dashboard.leadsByStage || []).map((s) => ({
     stageName: s.stageName,
     count: s.count,
     color: s.color,
@@ -494,14 +494,14 @@ export default function DashboardPage() {
         </p>
         <div className="flex flex-wrap gap-3">
           <Link
-            href="/dashboard/conversations/new"
+            href="/dashboard/conversations"
             className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground shadow transition-colors hover:bg-primary/90"
           >
             <MessageSquare className="h-4 w-4" />
             Nova Conversa
           </Link>
           <Link
-            href="/dashboard/leads/new"
+            href="/dashboard/leads"
             className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-4 py-2.5 text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-muted"
           >
             <Target className="h-4 w-4" />

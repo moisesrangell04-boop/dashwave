@@ -6,6 +6,7 @@ import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtStrategy } from '../../common/strategies/jwt.strategy';
 import { PrismaService } from '../../infra/database/prisma/prisma.service';
+import { RedisCacheService } from '../../infra/cache/redis-cache.service';
 
 @Module({
   imports: [
@@ -22,7 +23,7 @@ import { PrismaService } from '../../infra/database/prisma/prisma.service';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy, PrismaService],
+  providers: [AuthService, JwtStrategy, PrismaService, RedisCacheService],
   exports: [AuthService, JwtModule, PassportModule],
 })
 export class AuthModule {}

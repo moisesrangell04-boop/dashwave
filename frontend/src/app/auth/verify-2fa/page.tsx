@@ -44,7 +44,7 @@ function Verify2FAForm() {
     }
     setIsSubmitting(true);
     try {
-      await api.post('/auth/verify-2fa', { userId, token });
+      await api.post('/auth/2fa/verify', { userId, token });
       toast.success('Autenticação verificada com sucesso!');
       router.push('/dashboard');
     } catch (error: any) {

@@ -2,12 +2,14 @@ import {
   Controller,
   Get,
   Post,
+  Patch,
   Delete,
   Body,
   Param,
   Query,
   UseGuards,
   Headers,
+  UnauthorizedException,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -17,6 +19,8 @@ import {
   ApiQuery,
   ApiExcludeEndpoint,
 } from '@nestjs/swagger';
+import { ConfigService } from '@nestjs/config';
+import * as crypto from 'crypto';
 import { WebhookService } from './webhook.service';
 import { CreateWebhookDto } from './dto/create-webhook.dto';
 import { JwtAuthGuard } from '@common/guards/jwt-auth.guard';
@@ -26,7 +30,10 @@ import { Public } from '@common/decorators/public.decorator';
 @ApiTags('Webhooks')
 @Controller('webhooks')
 export class WebhookController {
-  constructor(private readonly webhookService: WebhookService) {}
+  constructor(
+    private readonly webhookService: WebhookService,
+    private readonly configService: ConfigService,
+  ) {}
 
   @Public()
   @Post('evolution/:instanceName')
@@ -35,8 +42,13 @@ export class WebhookController {
   @ApiResponse({ status: 200, description: 'Webhook processed successfully' })
   receiveEvolution(
     @Param('instanceName') instanceName: string,
+    @Headers('apikey') apiKey: string,
     @Body() payload: any,
   ) {
+    const configuredKey = this.configService.get<string>('whatsapp.evolution.globalApiKey');
+    if (configuredKey && apiKey !== configuredKey) {
+      throw new UnauthorizedException('Invalid webhook API key');
+    }
     return this.webhookService.handleEvolutionWebhook(instanceName, payload);
   }
 
@@ -45,7 +57,20 @@ export class WebhookController {
   @ApiExcludeEndpoint()
   @ApiOperation({ summary: 'Meta Cloud API webhook receiver' })
   @ApiResponse({ status: 200, description: 'Webhook processed successfully' })
-  receiveMeta(@Body() payload: any) {
+  receiveMeta(
+    @Headers('x-hub-signature-256') signature: string,
+    @Body() payload: any,
+  ) {
+    const appSecret = this.configService.get<string>('whatsapp.meta.appSecret');
+    if (appSecret && signature) {
+      const expected = 'sha256=' + crypto
+        .createHmac('sha256', appSecret)
+        .update(JSON.stringify(payload))
+        .digest('hex');
+      if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {
+        throw new UnauthorizedException('Invalid webhook signature');
+      }
+    }
     return this.webhookService.handleMetaWebhook(payload);
   }
 
@@ -97,5 +122,19 @@ export class WebhookController {
     @Param('id') id: string,
   ) {
     return this.webhookService.deleteConfig(tenantId, id);
+  }
+
+  @Patch('config/:id')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('access-token')
+  @ApiOperation({ summary: 'Update a webhook configuration' })
+  @ApiResponse({ status: 200, description: 'Webhook config updated successfully' })
+  @ApiResponse({ status: 404, description: 'Webhook config not found' })
+  updateConfig(
+    @CurrentUser('tenantId') tenantId: string,
+    @Param('id') id: string,
+    @Body() dto: any,
+  ) {
+    return this.webhookService.updateConfig(tenantId, id, dto);
   }
 }

@@ -44,12 +44,20 @@ export class ContactService {
   }
 
   async findAll(tenantId: string, workspaceId: string, query: QueryContactDto) {
-    const { page, limit, sortBy, sortOrder, name, phone, tags, isBlocked } = query;
+    const { page, limit, sortBy, sortOrder, q, name, phone, tags, isBlocked } = query;
 
     const where: any = {
       tenantId,
       workspaceId,
     };
+
+    if (q) {
+      where.OR = [
+        { name: { contains: q, mode: 'insensitive' } },
+        { phone: { contains: q } },
+        { email: { contains: q, mode: 'insensitive' } },
+      ];
+    }
 
     if (name) {
       where.name = { contains: name, mode: 'insensitive' };

@@ -4,6 +4,11 @@ import { PaginationDto } from '@common/dto/pagination.dto';
 import { Transform } from 'class-transformer';
 
 export class QueryContactDto extends PaginationDto {
+  @ApiPropertyOptional({ description: 'Search by name or phone (partial match)' })
+  @IsOptional()
+  @IsString()
+  q?: string;
+
   @ApiPropertyOptional({ description: 'Filter by name (partial match)' })
   @IsOptional()
   @IsString()

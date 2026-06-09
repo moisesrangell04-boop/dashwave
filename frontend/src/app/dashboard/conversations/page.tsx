@@ -28,6 +28,7 @@ import {
   priorityBadge,
   CONVERSATION_STATUS_LABELS,
 } from '@/lib/utils';
+import { useConversationSocket } from '@/hooks/use-conversation-socket';
 import type { Conversation, Message, PaginatedResponse } from '@/types';
 
 const FILTER_TABS = [
@@ -191,13 +192,13 @@ export default function ConversationsPage() {
       api.get('/conversations', {
         params: {
           status: activeFilter !== 'all' ? activeFilter : undefined,
-          search: debouncedSearch || undefined,
+          q: debouncedSearch || undefined,
           page,
           limit: PAGE_SIZE,
-          sort: 'lastMessageAt:desc',
+          sortBy: 'lastMessageAt', sortOrder: 'desc',
         },
       }),
-    refetchInterval: 10000,
+    staleTime: 30000,
   });
 
   const conversations = conversationsData?.data ?? [];
@@ -207,6 +208,9 @@ export default function ConversationsPage() {
     () => conversations.find((c) => c.id === selectedId) ?? null,
     [conversations, selectedId],
   );
+
+  // WebSocket for real-time updates (replaces polling)
+  useConversationSocket(selectedId);
 
   // Fetch full conversation details when selected
   const { data: fullConversation } = useQuery<Conversation>({
@@ -226,7 +230,6 @@ export default function ConversationsPage() {
         params: { limit: 200 },
       }),
     enabled: !!selectedId,
-    refetchInterval: 5000,
   });
 
   // --- Mutations ---
@@ -246,7 +249,7 @@ export default function ConversationsPage() {
   });
 
   const toggleAIMutation = useMutation({
-    mutationFn: () => api.post(`/conversations/${selectedId}/toggle-ai`),
+    mutationFn: () => api.post(`/conversations/${selectedId}/ai/toggle`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['conversations'] });
       queryClient.invalidateQueries({ queryKey: ['conversation', selectedId] });

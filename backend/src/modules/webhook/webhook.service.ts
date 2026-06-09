@@ -2,9 +2,11 @@ import {
   Injectable,
   BadRequestException,
   Logger,
+  Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '@infra/database/prisma/prisma.service';
+import { ConversationGateway } from '../gateway/conversation.gateway';
 import { CreateWebhookDto } from './dto/create-webhook.dto';
 
 @Injectable()
@@ -14,6 +16,7 @@ export class WebhookService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
+    @Optional() private readonly gateway: ConversationGateway,
   ) {}
 
   async handleEvolutionWebhook(instanceName: string, payload: any) {
@@ -112,10 +115,26 @@ export class WebhookService {
     }
 
     await this.prisma.webhookConfiguration.delete({ where: { id } });
+    this.logger.log(`Webhook config "${config.name}" deleted for tenant ${tenantId}`);
+    return { success: true };
+  }
 
-    this.logger.log(`Webhook config "${config.name}" deleted from tenant ${tenantId}`);
+  async updateConfig(tenantId: string, id: string, dto: Partial<CreateWebhookDto>) {
+    const config = await this.prisma.webhookConfiguration.findFirst({
+      where: { id, tenantId },
+    });
 
-    return { message: 'Webhook configuration deleted successfully' };
+    if (!config) {
+      throw new BadRequestException('Webhook configuration not found');
+    }
+
+    const updated = await this.prisma.webhookConfiguration.update({
+      where: { id },
+      data: dto,
+    });
+
+    this.logger.log(`Webhook config "${updated.name}" updated for tenant ${tenantId}`);
+    return updated;
   }
 
   private async processEvolutionMessage(instance: any, data: any) {
@@ -166,6 +185,8 @@ export class WebhookService {
     });
 
     await this.updateConversationAfterMessage(conversation.id, messageContent);
+    this.gateway?.emitNewMessage(instance.tenantId, conversation.id, message);
+
     await this.triggerAutomations(instance.tenantId, instance.workspaceId, 'message_received', {
       conversationId: conversation.id,
       contactId: contact.id,
@@ -234,6 +255,8 @@ export class WebhookService {
     });
 
     await this.updateConversationAfterMessage(conversation.id, messageContent);
+    this.gateway?.emitNewMessage(instance.tenantId, conversation.id, message);
+
     await this.triggerAutomations(instance.tenantId, instance.workspaceId, 'message_received', {
       conversationId: conversation.id,
       contactId: contact.id,

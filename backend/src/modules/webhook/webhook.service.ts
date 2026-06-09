@@ -6,6 +6,8 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '@infra/database/prisma/prisma.service';
+import { AutomationService } from '@modules/automation/automation.service';
+import { AiService } from '@modules/ai/ai.service';
 import { ConversationGateway } from '../gateway/conversation.gateway';
 import { CreateWebhookDto } from './dto/create-webhook.dto';
 
@@ -17,6 +19,8 @@ export class WebhookService {
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
     @Optional() private readonly gateway: ConversationGateway,
+    @Optional() private readonly automationService: AutomationService,
+    @Optional() private readonly aiService: AiService,
   ) {}
 
   async handleEvolutionWebhook(instanceName: string, payload: any) {
@@ -58,6 +62,7 @@ export class WebhookService {
     }
 
     const messages = value.messages ?? [];
+    const statuses = value.statuses ?? [];
     const metadata = value.metadata;
 
     if (!metadata) {
@@ -66,6 +71,10 @@ export class WebhookService {
 
     for (const msg of messages) {
       await this.processMetaMessage(metadata, msg);
+    }
+
+    for (const status of statuses) {
+      await this.processMetaStatus(metadata, status);
     }
 
     return { status: 'ok' };
@@ -205,8 +214,16 @@ export class WebhookService {
 
   private async processMetaMessage(metadata: any, msg: any) {
     const phone = msg.from ?? '';
-    const messageContent = msg.text?.body || msg.caption || '';
     const messageType = this.mapMetaMessageType(msg);
+
+    // Detect Meta Business Agent handoff via system message
+    const isMetaBAHandoff =
+      msg.type === 'system' &&
+      (msg.system?.type === 'user_identity_changed' ||
+        msg.system?.body?.toLowerCase().includes('agent') ||
+        msg.referral?.source_type === 'ai_bot');
+
+    const messageContent = msg.text?.body || msg.caption || (msg.system?.body ?? '') || '';
     const timestamp = msg.timestamp
       ? new Date(Number(msg.timestamp) * 1000)
       : new Date();
@@ -257,6 +274,16 @@ export class WebhookService {
     await this.updateConversationAfterMessage(conversation.id, messageContent);
     this.gateway?.emitNewMessage(instance.tenantId, conversation.id, message);
 
+    // If Meta BA handoff detected, switch conversation to human handling
+    if (isMetaBAHandoff && conversation.handledBy === 'meta_business_agent') {
+      await this.prisma.conversation.update({
+        where: { id: conversation.id },
+        data: { handledBy: 'human', status: 'pending', lastActivityAt: new Date() },
+      });
+      this.gateway?.emitHandlerChanged(instance.tenantId, conversation.id, 'human');
+      this.logger.log(`Meta BA handoff system message: conversation ${conversation.id} moved to human`);
+    }
+
     await this.triggerAutomations(instance.tenantId, instance.workspaceId, 'message_received', {
       conversationId: conversation.id,
       contactId: contact.id,
@@ -271,6 +298,46 @@ export class WebhookService {
     this.logger.log(`Meta message ${message.id} processed for contact ${contact.id}`);
 
     return { status: 'ok' };
+  }
+
+  private async processMetaStatus(metadata: any, status: any) {
+    const conversationOrigin = status?.conversation?.origin?.type;
+    const recipientId = status?.recipient_id ?? '';
+
+    if (!recipientId) return;
+
+    const instance = await this.prisma.whatsAppInstance.findFirst({
+      where: { metaPhoneId: metadata.phone_number_id },
+    });
+
+    if (!instance) return;
+
+    const phone = recipientId.replace(/[^0-9]/g, '');
+    const contact = await this.prisma.contact.findUnique({
+      where: { tenantId_phone: { tenantId: instance.tenantId, phone } },
+    });
+
+    if (!contact) return;
+
+    const conversation = await this.prisma.conversation.findFirst({
+      where: {
+        tenantId: instance.tenantId,
+        contactId: contact.id,
+        status: { in: ['active', 'pending', 'waiting'] },
+      },
+    });
+
+    if (!conversation) return;
+
+    // Meta Business Agent hands off: conversation origin was bot_initiated but now needs human
+    if (conversationOrigin === 'bot_initiated' && conversation.handledBy === 'meta_business_agent') {
+      await this.prisma.conversation.update({
+        where: { id: conversation.id },
+        data: { handledBy: 'human', status: 'pending', lastActivityAt: new Date() },
+      });
+      this.gateway?.emitHandlerChanged(instance.tenantId, conversation.id, 'human');
+      this.logger.log(`Meta BA handed off conversation ${conversation.id} to human`);
+    }
   }
 
   private async processEvolutionStatus(instance: any, data: any) {
@@ -433,27 +500,13 @@ export class WebhookService {
     eventType: string,
     payload: Record<string, any>,
   ) {
+    if (!this.automationService) return;
     try {
-      const automations = await this.prisma.automation.findMany({
-        where: {
-          tenantId,
-          workspaceId,
-          isActive: true,
-        },
-      });
-
-      const matching = automations.filter((a) => {
-        const trigger = a.trigger as any;
-        return trigger.type === eventType;
-      });
-
-      for (const automation of matching) {
-        const actions = (automation.actions as any[]) ?? [];
-        for (const action of actions) {
-          this.logger.log(
-            `Automation "${automation.name}" action "${action.type}" triggered by ${eventType}`,
-          );
-        }
+      const results = await this.automationService.execute(tenantId, workspaceId, eventType, payload);
+      for (const result of results) {
+        this.logger.log(
+          `Automation "${result.automationName}" executed: ${result.success ? 'success' : 'failed'}`,
+        );
       }
     } catch (err) {
       this.logger.error(`Failed to trigger automations: ${err.message}`);
@@ -465,19 +518,54 @@ export class WebhookService {
     workspaceId: string,
     conversation: any,
   ) {
+    if (!this.aiService) return;
     try {
       const agentId = conversation.assignedAgentId;
       if (!agentId) return;
 
-      const agent = await this.prisma.aIAgent.findFirst({
-        where: { id: agentId, tenantId, isActive: true },
+      const lastMessage = await this.prisma.message.findFirst({
+        where: { conversationId: conversation.id, tenantId },
+        orderBy: { createdAt: 'desc' },
       });
 
-      if (!agent) return;
+      if (!lastMessage) return;
+      if (lastMessage.origin === 'ai') return;
 
-      this.logger.log(
-        `AI agent "${agent.name}" should respond in conversation ${conversation.id}`,
+      const responseText = await this.aiService.processMessage(
+        agentId,
+        lastMessage.content,
+        conversation.id,
       );
+
+      if (!responseText) return;
+
+      const reply = await this.prisma.message.create({
+        data: {
+          tenantId,
+          workspaceId,
+          conversationId: conversation.id,
+          contactId: conversation.contactId,
+          whatsappInstanceId: conversation.whatsappInstanceId,
+          direction: 'outbound',
+          type: 'text',
+          status: 'pending',
+          origin: 'ai',
+          content: responseText,
+          aiAgentId: agentId,
+        },
+      });
+
+      await this.prisma.conversation.update({
+        where: { id: conversation.id },
+        data: {
+          lastMessage: responseText,
+          lastMessageAt: new Date(),
+          lastActivityAt: new Date(),
+        },
+      });
+
+      this.gateway?.emitNewMessage(tenantId, conversation.id, reply);
+      this.logger.log(`AI agent responded in conversation ${conversation.id}`);
     } catch (err) {
       this.logger.error(`Failed to trigger AI response: ${err.message}`);
     }

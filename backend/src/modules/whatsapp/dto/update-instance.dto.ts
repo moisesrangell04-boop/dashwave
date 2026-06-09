@@ -19,6 +19,16 @@ export class UpdateInstanceDto {
   @IsString()
   apikey?: string;
 
+  @ApiPropertyOptional({ example: '123456789012345', description: 'Meta Cloud API phone number ID' })
+  @IsOptional()
+  @IsString()
+  metaPhoneId?: string;
+
+  @ApiPropertyOptional({ example: '987654321098765', description: 'Meta Business Account ID' })
+  @IsOptional()
+  @IsString()
+  metaBusinessId?: string;
+
   @ApiPropertyOptional({ description: 'Instance settings as JSON object' })
   @IsOptional()
   @IsObject()

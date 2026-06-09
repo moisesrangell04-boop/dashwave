@@ -46,6 +46,16 @@ export function useConversationSocket(activeConversationId: string | null) {
       queryClient.invalidateQueries({ queryKey: ['conversations'] });
     });
 
+    es.addEventListener('handler:changed', (e) => {
+      try {
+        const evt = JSON.parse(e.data) as { conversationId?: string };
+        if (evt.conversationId) {
+          queryClient.invalidateQueries({ queryKey: ['conversation', evt.conversationId] });
+        }
+        queryClient.invalidateQueries({ queryKey: ['conversations'] });
+      } catch {}
+    });
+
     es.onerror = () => {
       es.close();
       esRef.current = null;

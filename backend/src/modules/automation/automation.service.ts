@@ -170,6 +170,47 @@ export class AutomationService {
     return this.executeAutomation(automation, dto.mockEvent.payload);
   }
 
+  async toggleAll(tenantId: string, workspaceId: string, active: boolean) {
+    const result = await this.prisma.automation.updateMany({
+      where: { tenantId, workspaceId },
+      data: { isActive: active },
+    });
+    this.logger.log(`All automations ${active ? 'activated' : 'deactivated'} in tenant ${tenantId}`);
+    return { count: result.count, active };
+  }
+
+  async getLogs(id: string, tenantId: string, page: number, limit: number) {
+    const automation = await this.prisma.automation.findFirst({
+      where: { id, tenantId },
+    });
+
+    if (!automation) {
+      throw new NotFoundException('Automation not found');
+    }
+
+    const skip = (page - 1) * limit;
+
+    const [data, total] = await Promise.all([
+      this.prisma.automationLog.findMany({
+        where: { automationId: id, tenantId },
+        skip,
+        take: limit,
+        orderBy: { executedAt: 'desc' },
+      }),
+      this.prisma.automationLog.count({
+        where: { automationId: id, tenantId },
+      }),
+    ]);
+
+    return {
+      data,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
+  }
+
   async execute(
     tenantId: string,
     workspaceId: string,
@@ -217,6 +258,7 @@ export class AutomationService {
     automation: any,
     payload: Record<string, any>,
   ): Promise<ExecutionResult> {
+    const startTime = Date.now();
     const actions = (automation.actions as any[]) ?? [];
     const actionResults: ActionResult[] = [];
     let hasError = false;
@@ -239,12 +281,31 @@ export class AutomationService {
       }
     }
 
+    const durationMs = Date.now() - startTime;
+
     await this.prisma.automation.update({
       where: { id: automation.id },
       data: {
         executionCount: { increment: 1 },
         lastExecutedAt: new Date(),
         ...(hasError ? { errorCount: { increment: 1 } } : {}),
+      },
+    });
+
+    await this.prisma.automationLog.create({
+      data: {
+        tenantId: automation.tenantId,
+        workspaceId: automation.workspaceId,
+        automationId: automation.id,
+        eventType: (automation.trigger as any)?.type || 'unknown',
+        payload: automation.trigger as any,
+        actions: actionResults as any,
+        success: !hasError,
+        errorMessage: hasError
+          ? actionResults.find((r) => !r.success)?.error || 'Unknown error'
+          : null,
+        durationMs,
+        executedAt: new Date(),
       },
     });
 

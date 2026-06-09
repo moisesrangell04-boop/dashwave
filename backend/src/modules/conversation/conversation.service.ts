@@ -3,8 +3,10 @@ import {
   NotFoundException,
   ConflictException,
   Logger,
+  Optional,
 } from '@nestjs/common';
 import { PrismaService } from '@infra/database/prisma/prisma.service';
+import { ConversationGateway } from '../gateway/conversation.gateway';
 import { CreateConversationDto } from './dto/create-conversation.dto';
 import { UpdateConversationDto } from './dto/update-conversation.dto';
 import { QueryConversationDto } from './dto/query-conversation.dto';
@@ -13,7 +15,10 @@ import { QueryConversationDto } from './dto/query-conversation.dto';
 export class ConversationService {
   private readonly logger = new Logger(ConversationService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly gateway: ConversationGateway,
+  ) {}
 
   async create(tenantId: string, workspaceId: string, dto: CreateConversationDto) {
     const contact = await this.prisma.contact.findFirst({
@@ -349,6 +354,57 @@ export class ConversationService {
         },
       },
     });
+  }
+
+  async takeoverFromMetaAgent(id: string, tenantId: string) {
+    const conversation = await this.prisma.conversation.findFirst({
+      where: { id, tenantId },
+    });
+
+    if (!conversation) {
+      throw new NotFoundException('Conversation not found');
+    }
+
+    const updated = await this.prisma.conversation.update({
+      where: { id },
+      data: {
+        handledBy: 'human',
+        status: conversation.status === 'pending' ? 'active' : conversation.status,
+        lastActivityAt: new Date(),
+      },
+      include: {
+        contact: { select: { id: true, name: true, phone: true } },
+      },
+    });
+
+    this.gateway?.emitHandlerChanged(tenantId, id, 'human');
+    this.logger.log(`Human takeover of conversation ${id} from Meta Business Agent`);
+    return updated;
+  }
+
+  async handbackToMetaAgent(id: string, tenantId: string) {
+    const conversation = await this.prisma.conversation.findFirst({
+      where: { id, tenantId },
+    });
+
+    if (!conversation) {
+      throw new NotFoundException('Conversation not found');
+    }
+
+    const updated = await this.prisma.conversation.update({
+      where: { id },
+      data: {
+        handledBy: 'meta_business_agent',
+        lastActivityAt: new Date(),
+      },
+      include: {
+        contact: { select: { id: true, name: true, phone: true } },
+      },
+    });
+
+    this.gateway?.emitHandlerChanged(tenantId, id, 'meta_business_agent');
+    this.logger.log(`Conversation ${id} handed back to Meta Business Agent`);
+    return updated;
   }
 
   async getMessages(id: string, tenantId: string, page: number, limit: number) {

@@ -16,9 +16,11 @@ import {
   ApiBearerAuth,
 } from '@nestjs/swagger';
 import { ConversationService } from './conversation.service';
+import { MessageService } from '@modules/message/message.service';
 import { CreateConversationDto } from './dto/create-conversation.dto';
 import { UpdateConversationDto } from './dto/update-conversation.dto';
 import { QueryConversationDto } from './dto/query-conversation.dto';
+import { SendMessageDto } from '@modules/message/dto/send-message.dto';
 import { JwtAuthGuard } from '@common/guards/jwt-auth.guard';
 import { CurrentUser } from '@common/decorators/current-user.decorator';
 
@@ -27,7 +29,10 @@ import { CurrentUser } from '@common/decorators/current-user.decorator';
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth('access-token')
 export class ConversationController {
-  constructor(private readonly conversationService: ConversationService) {}
+  constructor(
+    private readonly conversationService: ConversationService,
+    private readonly messageService: MessageService,
+  ) {}
 
   @Post()
   @ApiOperation({ summary: 'Create a new conversation' })
@@ -93,10 +98,11 @@ export class ConversationController {
   @ApiResponse({ status: 404, description: 'Conversation or user not found' })
   assignToUser(
     @CurrentUser('tenantId') tenantId: string,
+    @CurrentUser('id') currentUserId: string,
     @Param('id') id: string,
-    @Body('userId') userId: string,
+    @Body('userId') userId?: string,
   ) {
-    return this.conversationService.assignToUser(id, tenantId, userId);
+    return this.conversationService.assignToUser(id, tenantId, userId || currentUserId);
   }
 
   @Post(':id/agent-assign')
@@ -177,6 +183,28 @@ export class ConversationController {
     return this.conversationService.toggleAI(id, tenantId);
   }
 
+  @Post(':id/meta-agent/takeover')
+  @ApiOperation({ summary: 'Human agent takes over conversation from Meta Business Agent' })
+  @ApiResponse({ status: 200, description: 'Takeover successful' })
+  @ApiResponse({ status: 404, description: 'Conversation not found' })
+  takeoverFromMetaAgent(
+    @CurrentUser('tenantId') tenantId: string,
+    @Param('id') id: string,
+  ) {
+    return this.conversationService.takeoverFromMetaAgent(id, tenantId);
+  }
+
+  @Post(':id/meta-agent/handback')
+  @ApiOperation({ summary: 'Hand conversation back to Meta Business Agent' })
+  @ApiResponse({ status: 200, description: 'Handback successful' })
+  @ApiResponse({ status: 404, description: 'Conversation not found' })
+  handbackToMetaAgent(
+    @CurrentUser('tenantId') tenantId: string,
+    @Param('id') id: string,
+  ) {
+    return this.conversationService.handbackToMetaAgent(id, tenantId);
+  }
+
   @Get(':id/messages')
   @ApiOperation({ summary: 'Get paginated messages for a conversation' })
   @ApiResponse({ status: 200, description: 'Messages retrieved successfully' })
@@ -188,5 +216,24 @@ export class ConversationController {
     @Query('limit') limit?: number,
   ) {
     return this.conversationService.getMessages(id, tenantId, page || 1, limit || 50);
+  }
+
+  @Post(':id/messages')
+  @ApiOperation({ summary: 'Send a message in a conversation' })
+  @ApiResponse({ status: 201, description: 'Message sent successfully' })
+  @ApiResponse({ status: 404, description: 'Conversation not found' })
+  async sendMessage(
+    @CurrentUser('tenantId') tenantId: string,
+    @CurrentUser('workspaceId') workspaceId: string,
+    @CurrentUser('id') userId: string,
+    @Param('id') id: string,
+    @Body() body: { content: string; type?: string; direction?: string; origin?: string },
+  ) {
+    const dto = new SendMessageDto();
+    dto.conversationId = id;
+    dto.content = body.content;
+    dto.type = (body.type as any) || 'text';
+    dto.origin = (body.origin || 'human') as any;
+    return this.messageService.send(tenantId, workspaceId, dto, userId);
   }
 }

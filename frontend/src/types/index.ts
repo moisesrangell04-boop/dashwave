@@ -55,6 +55,8 @@ export interface WhatsAppInstance {
   isActive: boolean;
   maxConcurrentChats: number;
   settings?: Record<string, any>;
+  metaPhoneId?: string;
+  metaBusinessId?: string;
   lastSyncAt?: string;
   createdAt: string;
 }
@@ -96,6 +98,7 @@ export interface Conversation {
   lastActivityAt?: string;
   unreadCount: number;
   aiActive: boolean;
+  handledBy: ConversationHandler;
   tags: string[];
   resolvedAt?: string;
   closedAt?: string;
@@ -108,6 +111,7 @@ export interface Conversation {
 export type ConversationStatus = 'active' | 'pending' | 'waiting' | 'resolved' | 'closed';
 export type ConversationChannel = 'whatsapp' | 'webchat' | 'api';
 export type ConversationPriority = 'low' | 'medium' | 'high' | 'urgent';
+export type ConversationHandler = 'human' | 'meta_business_agent' | 'wave_ai';
 
 export interface Message {
   id: string;

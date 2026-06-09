@@ -6,6 +6,7 @@ import {
   Delete,
   Body,
   Param,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -115,5 +116,29 @@ export class AutomationController {
     @Body() dto: TestAutomationDto,
   ) {
     return this.automationService.test(id, tenantId, dto);
+  }
+
+  @Post('toggle-all')
+  @ApiOperation({ summary: 'Toggle all automations on/off' })
+  @ApiResponse({ status: 200, description: 'Automations toggled successfully' })
+  toggleAll(
+    @CurrentUser('tenantId') tenantId: string,
+    @CurrentUser('workspaceId') workspaceId: string,
+    @Body('active') active: boolean,
+  ) {
+    return this.automationService.toggleAll(tenantId, workspaceId, active);
+  }
+
+  @Get(':id/logs')
+  @ApiOperation({ summary: 'Get automation execution logs' })
+  @ApiResponse({ status: 200, description: 'Logs retrieved successfully' })
+  @ApiResponse({ status: 404, description: 'Automation not found' })
+  getLogs(
+    @CurrentUser('tenantId') tenantId: string,
+    @Param('id') id: string,
+    @Query('page') page?: number,
+    @Query('limit') limit?: number,
+  ) {
+    return this.automationService.getLogs(id, tenantId, page || 1, limit || 50);
   }
 }

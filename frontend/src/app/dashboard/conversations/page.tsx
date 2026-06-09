@@ -17,6 +17,8 @@ import {
   ChevronLeft,
   AlertCircle,
   RefreshCw,
+  Sparkles,
+  UserCheck,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import {
@@ -220,10 +222,10 @@ export default function ConversationsPage() {
   });
 
   const {
-    data: messages,
+    data: messagesData,
     isLoading: messagesLoading,
     isError: messagesError,
-  } = useQuery<Message[]>({
+  } = useQuery<PaginatedResponse<Message>>({
     queryKey: ['messages', selectedId],
     queryFn: () =>
       api.get(`/conversations/${selectedId}/messages`, {
@@ -231,6 +233,8 @@ export default function ConversationsPage() {
       }),
     enabled: !!selectedId,
   });
+
+  const messages = messagesData?.data ?? [];
 
   // --- Mutations ---
 
@@ -266,7 +270,27 @@ export default function ConversationsPage() {
   });
 
   const assignMutation = useMutation({
-    mutationFn: () => api.post(`/conversations/${selectedId}/assign`),
+    mutationFn: () => {
+      const userStr = localStorage.getItem('wave_user');
+      const userId = userStr ? JSON.parse(userStr).id : undefined;
+      return api.post(`/conversations/${selectedId}/assign`, { userId });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['conversations'] });
+      queryClient.invalidateQueries({ queryKey: ['conversation', selectedId] });
+    },
+  });
+
+  const takeoverMutation = useMutation({
+    mutationFn: () => api.post(`/conversations/${selectedId}/meta-agent/takeover`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['conversations'] });
+      queryClient.invalidateQueries({ queryKey: ['conversation', selectedId] });
+    },
+  });
+
+  const handbackMutation = useMutation({
+    mutationFn: () => api.post(`/conversations/${selectedId}/meta-agent/handback`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['conversations'] });
       queryClient.invalidateQueries({ queryKey: ['conversation', selectedId] });
@@ -491,7 +515,13 @@ export default function ConversationsPage() {
                             ? truncate(conv.lastMessage, 40)
                             : 'Sem mensagens'}
                         </span>
-                        {conv.aiActive && (
+                        {conv.handledBy === 'meta_business_agent' && (
+                          <span className="shrink-0 flex items-center gap-0.5 rounded-full bg-blue-500/10 px-1.5 py-0.5 text-[9px] font-semibold text-blue-500">
+                            <Sparkles className="h-2.5 w-2.5" />
+                            Meta AI
+                          </span>
+                        )}
+                        {conv.aiActive && conv.handledBy !== 'meta_business_agent' && (
                           <Bot className="shrink-0 h-3.5 w-3.5 text-purple-500" />
                         )}
                       </div>
@@ -605,6 +635,37 @@ export default function ConversationsPage() {
                   {convForDisplay.priority}
                 </span>
 
+                {/* Meta BA takeover / handback */}
+                {convForDisplay.handledBy === 'meta_business_agent' ? (
+                  <button
+                    onClick={() => takeoverMutation.mutate()}
+                    disabled={takeoverMutation.isPending}
+                    className="flex items-center gap-1.5 rounded-lg bg-blue-500/10 px-2.5 py-1.5 text-xs font-medium text-blue-500 transition-colors hover:bg-blue-500/20"
+                    title="Assumir conversa do Meta AI"
+                  >
+                    {takeoverMutation.isPending ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <UserCheck className="h-3.5 w-3.5" />
+                    )}
+                    <span className="hidden sm:inline">Assumir</span>
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => handbackMutation.mutate()}
+                    disabled={handbackMutation.isPending}
+                    className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                    title="Passar para Meta AI"
+                  >
+                    {handbackMutation.isPending ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Sparkles className="h-3.5 w-3.5" />
+                    )}
+                    <span className="hidden sm:inline">Meta AI</span>
+                  </button>
+                )}
+
                 {/* AI Toggle */}
                 <button
                   onClick={() => toggleAIMutation.mutate()}
@@ -647,6 +708,25 @@ export default function ConversationsPage() {
                 )}
               </div>
             </div>
+
+            {/* Meta Business Agent Banner */}
+            {convForDisplay.handledBy === 'meta_business_agent' && (
+              <div className="shrink-0 flex items-center justify-between bg-blue-500/10 border-b border-blue-500/20 px-4 py-2">
+                <div className="flex items-center gap-2 text-blue-500">
+                  <Sparkles className="h-4 w-4 shrink-0" />
+                  <p className="text-xs font-medium">
+                    Meta Business Agent está gerenciando esta conversa automaticamente.
+                  </p>
+                </div>
+                <button
+                  onClick={() => takeoverMutation.mutate()}
+                  disabled={takeoverMutation.isPending}
+                  className="shrink-0 ml-3 rounded-md bg-blue-500 px-2.5 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-blue-600 disabled:opacity-60"
+                >
+                  {takeoverMutation.isPending ? 'Assumindo...' : 'Assumir'}
+                </button>
+              </div>
+            )}
 
             {/* Messages Area */}
             <div

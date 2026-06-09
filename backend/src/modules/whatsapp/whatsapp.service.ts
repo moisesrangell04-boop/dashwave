@@ -117,6 +117,8 @@ export class WhatsAppService {
         ...(dto.name && { name: dto.name }),
         ...(dto.serverUrl && { serverUrl: dto.serverUrl }),
         ...(dto.apikey && { apikey: dto.apikey }),
+        ...(dto.metaPhoneId !== undefined && { metaPhoneId: dto.metaPhoneId }),
+        ...(dto.metaBusinessId !== undefined && { metaBusinessId: dto.metaBusinessId }),
         ...(dto.settings && { settings: dto.settings }),
       },
     });

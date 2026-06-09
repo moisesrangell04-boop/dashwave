@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Subject } from 'rxjs';
 
 export interface SseEvent {
-  type: 'message:new' | 'conversation:updated' | 'conversation:new';
+  type: 'message:new' | 'conversation:updated' | 'conversation:new' | 'handler:changed';
   tenantId: string;
   conversationId?: string;
   data?: unknown;
@@ -46,6 +46,15 @@ export class ConversationGateway {
       type: 'conversation:new',
       tenantId,
       data: conversation,
+    });
+  }
+
+  emitHandlerChanged(tenantId: string, conversationId: string, handledBy: string) {
+    this.subjects.get(tenantId)?.next({
+      type: 'handler:changed',
+      tenantId,
+      conversationId,
+      data: { handledBy },
     });
   }
 }

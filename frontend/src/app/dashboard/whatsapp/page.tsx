@@ -18,6 +18,9 @@ import {
   Wifi,
   WifiOff,
   Link2,
+  Copy,
+  Settings,
+  Sparkles,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn, formatRelativeTime, WHATSAPP_STATUS_LABELS, statusColor } from '@/lib/utils';
@@ -169,6 +172,145 @@ function CreateInstanceModal({ open, onClose }: { open: boolean; onClose: () => 
   );
 }
 
+function MetaCloudConfigModal({ instance, open, onClose }: { instance: WhatsAppInstance | null; open: boolean; onClose: () => void }) {
+  const queryClient = useQueryClient();
+  const [metaPhoneId, setMetaPhoneId] = useState('');
+  const [metaBusinessId, setMetaBusinessId] = useState('');
+  const apiBase = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api/v1').replace(/\/$/, '');
+  const webhookUrl = `${apiBase.replace('/api/v1', '')}/api/webhooks/meta`;
+  const verifyToken = 'Valor de META_WEBHOOK_VERIFY_TOKEN no seu .env';
+
+  useEffect(() => {
+    if (open && instance) {
+      setMetaPhoneId(instance.metaPhoneId || '');
+      setMetaBusinessId(instance.metaBusinessId || '');
+    }
+  }, [open, instance]);
+
+  const saveMutation = useMutation({
+    mutationFn: () =>
+      api.patch(`/whatsapp/instances/${instance!.id}`, { metaPhoneId: metaPhoneId.trim(), metaBusinessId: metaBusinessId.trim() }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['whatsapp-instances'] });
+      toast.success('Configuração salva');
+      onClose();
+    },
+    onError: () => toast.error('Erro ao salvar configuração'),
+  });
+
+  function copy(text: string, label: string) {
+    navigator.clipboard.writeText(text).then(() => toast.success(`${label} copiado`));
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title="Configurar Meta Cloud API" size="lg">
+      <div className="space-y-6">
+        {/* Webhook Info */}
+        <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 dark:border-blue-800 dark:bg-blue-950/30">
+          <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-blue-600 dark:text-blue-400">
+            Cole estes dados no Meta Business Suite → WhatsApp → Configuração → Webhooks
+          </p>
+          <div className="space-y-3">
+            <div>
+              <label className="block text-xs font-medium text-foreground mb-1">URL de Callback</label>
+              <div className="flex items-center gap-2">
+                <code className="flex-1 rounded border border-border bg-background px-3 py-2 text-xs font-mono text-foreground break-all">
+                  {webhookUrl}
+                </code>
+                <button
+                  type="button"
+                  onClick={() => copy(webhookUrl, 'URL')}
+                  className="shrink-0 rounded-lg border border-border p-2 text-muted-foreground hover:bg-muted hover:text-foreground"
+                >
+                  <Copy className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-foreground mb-1">Token de Verificação</label>
+              <div className="flex items-center gap-2">
+                <code className="flex-1 rounded border border-border bg-background px-3 py-2 text-xs font-mono text-foreground break-all">
+                  {verifyToken}
+                </code>
+                <button
+                  type="button"
+                  onClick={() => copy(verifyToken, 'Token')}
+                  className="shrink-0 rounded-lg border border-border p-2 text-muted-foreground hover:bg-muted hover:text-foreground"
+                >
+                  <Copy className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+          <p className="mt-3 text-xs text-blue-600 dark:text-blue-400">
+            Assine os campos: <strong>messages</strong>, <strong>message_deliveries</strong>, <strong>messaging_postbacks</strong>
+          </p>
+        </div>
+
+        {/* Meta IDs */}
+        <div className="space-y-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            IDs do Meta (encontre em Meta for Developers → WhatsApp → API Setup)
+          </p>
+          <div>
+            <label className="block text-sm font-medium text-foreground mb-1.5">
+              Phone Number ID <span className="text-destructive">*</span>
+            </label>
+            <input
+              type="text"
+              value={metaPhoneId}
+              onChange={(e) => setMetaPhoneId(e.target.value)}
+              placeholder="Ex: 123456789012345"
+              className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+            <p className="mt-1 text-xs text-muted-foreground">O ID do número de telefone no Meta for Developers</p>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-foreground mb-1.5">
+              Business Account ID
+            </label>
+            <input
+              type="text"
+              value={metaBusinessId}
+              onChange={(e) => setMetaBusinessId(e.target.value)}
+              placeholder="Ex: 987654321098765"
+              className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+            <p className="mt-1 text-xs text-muted-foreground">O ID da conta comercial do WhatsApp</p>
+          </div>
+        </div>
+
+        {/* Meta Business Agent toggle */}
+        <div className="rounded-lg border border-border bg-muted/30 p-4">
+          <div className="flex items-center gap-2 mb-2">
+            <Sparkles className="h-4 w-4 text-blue-500" />
+            <span className="text-sm font-medium text-foreground">Meta Business Agent</span>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Configure o handoff no <strong>WhatsApp Business Suite → Agente de negócios → Controle de Handoff</strong>.
+            Use a URL de callback acima. Quando a IA fizer handoff, o Wave CRM receberá automaticamente e marcará a conversa como pendente.
+          </p>
+        </div>
+
+        <div className="flex justify-end gap-3 pt-2">
+          <button type="button" onClick={onClose} className="rounded-lg border border-border bg-background px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted">
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={() => saveMutation.mutate()}
+            disabled={saveMutation.isPending || !metaPhoneId.trim()}
+            className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+          >
+            {saveMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+            Salvar
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 export default function WhatsAppPage() {
   const queryClient = useQueryClient();
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -177,6 +319,7 @@ export default function WhatsAppPage() {
   const [deletingInstance, setDeletingInstance] = useState<WhatsAppInstance | null>(null);
   const [disconnectingInstance, setDisconnectingInstance] = useState<WhatsAppInstance | null>(null);
   const [restartingId, setRestartingId] = useState<string | null>(null);
+  const [metaConfigInstance, setMetaConfigInstance] = useState<WhatsAppInstance | null>(null);
 
   const { data: instances, isLoading, isError, refetch } = useQuery<WhatsAppInstance[]>({
     queryKey: ['whatsapp-instances'],
@@ -282,6 +425,15 @@ export default function WhatsAppPage() {
                   </div>
                   <div className="mt-1 flex items-center gap-3 text-[11px] text-muted-foreground">
                     <span>{instance.provider === 'evolution' ? 'Evolution API' : 'Meta Cloud'}</span>
+                    {instance.provider === 'meta_cloud' && instance.metaPhoneId && (
+                      <span className="flex items-center gap-1 text-blue-500">
+                        <Sparkles className="h-2.5 w-2.5" />
+                        Phone ID: {instance.metaPhoneId}
+                      </span>
+                    )}
+                    {instance.provider === 'meta_cloud' && !instance.metaPhoneId && (
+                      <span className="text-yellow-500">Phone ID não configurado</span>
+                    )}
                     {instance.lastSyncAt && (
                       <span>Última sincronização {formatRelativeTime(instance.lastSyncAt)}</span>
                     )}
@@ -326,6 +478,16 @@ export default function WhatsAppPage() {
                     Reiniciar
                   </button>
                 )}
+                {instance.provider === 'meta_cloud' && (
+                  <button
+                    onClick={() => setMetaConfigInstance(instance)}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3.5 py-2 text-xs font-medium text-blue-600 transition-colors hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-400"
+                    title="Configurar Meta Cloud"
+                  >
+                    <Settings className="h-3.5 w-3.5" />
+                    Configurar
+                  </button>
+                )}
                 <button
                   onClick={() => setDeletingInstance(instance)}
                   className="ml-auto rounded-lg p-2 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
@@ -340,6 +502,7 @@ export default function WhatsAppPage() {
       )}
 
       <CreateInstanceModal open={showCreateModal} onClose={() => setShowCreateModal(false)} />
+      <MetaCloudConfigModal instance={metaConfigInstance} open={!!metaConfigInstance} onClose={() => setMetaConfigInstance(null)} />
 
       {qrCodeData && qrCodeInstance && (
         <QRCodeDisplay qrCode={qrCodeData} onClose={() => { setQrCodeInstance(null); setQrCodeData(''); }} />

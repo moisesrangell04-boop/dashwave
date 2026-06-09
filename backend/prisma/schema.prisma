@@ -129,6 +129,12 @@ enum AIProvider {
   gemini
 }
 
+enum ConversationHandler {
+  human
+  meta_business_agent
+  wave_ai
+}
+
 enum AutomationTriggerType {
   message_received
   conversation_created
@@ -189,6 +195,7 @@ model Tenant {
   webhookConfigurations WebhookConfiguration[]
   apiKeys              ApiKey[]
   notifications        Notification[]
+  automationLogs       AutomationLog[]
 }
 
 model Workspace {
@@ -211,6 +218,7 @@ model Workspace {
   leads             Lead[]
   aiAgents          AIAgent[]
   automations       Automation[]
+  automationLogs    AutomationLog[]
 
   @@unique([tenantId, name])
 
@@ -327,6 +335,7 @@ model Conversation {
   lastActivityAt     DateTime?
   unreadCount        Int                 @default(0)
   aiActive           Boolean             @default(false)
+  handledBy          ConversationHandler @default(human)
   tags               String[]
   customFields       Json?
   metadata           Json?
@@ -491,10 +500,33 @@ model Automation {
 
   tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   workspace Workspace @relation(fields: [workspaceId], references: [id])
+  logs      AutomationLog[]
 
   @@index([tenantId, workspaceId])
   @@index([isActive])
 
+}
+
+model AutomationLog {
+  id              String   @id @default(uuid())
+  tenantId        String
+  workspaceId     String
+  automationId    String
+  eventType       String
+  payload         Json?
+  actions         Json?
+  success         Boolean  @default(true)
+  errorMessage    String?
+  durationMs      Int?
+  executedAt      DateTime @default(now())
+
+  tenant     Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  workspace  Workspace  @relation(fields: [workspaceId], references: [id])
+  automation Automation @relation(fields: [automationId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, workspaceId])
+  @@index([automationId])
+  @@index([tenantId, executedAt])
 }
 
 model AuditLog {

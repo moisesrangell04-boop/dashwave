@@ -423,7 +423,7 @@ export class ConversationService {
         where: { conversationId: id, tenantId },
         skip,
         take: limit,
-        orderBy: { createdAt: 'desc' },
+        orderBy: { createdAt: 'asc' },
         include: {
           contact: {
             select: { id: true, name: true, avatar: true },

@@ -8,6 +8,7 @@ import {
   MessageCircle,
   CreditCard,
   Globe,
+  Shield,
   Upload,
   Save,
   Plus,
@@ -31,6 +32,7 @@ import {
   CheckCircle,
   Send,
   Webhook,
+  Smartphone,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn, statusColor } from '@/lib/utils';
@@ -41,6 +43,7 @@ const TABS = [
   { id: 'geral', label: 'Geral', icon: Settings },
   { id: 'equipe', label: 'Equipe', icon: Users },
   { id: 'whatsapp', label: 'WhatsApp', icon: MessageCircle },
+  { id: 'seguranca', label: 'Segurança', icon: Shield },
   { id: 'planos', label: 'Planos', icon: CreditCard },
   { id: 'api', label: 'API', icon: Globe },
 ] as const;
@@ -1680,6 +1683,253 @@ function WebhookModal({
   );
 }
 
+function SegurancaTab() {
+  const [isEnabling, setIsEnabling] = useState(false);
+  const [secret, setSecret] = useState('');
+  const [otpauthUrl, setOtpauthUrl] = useState('');
+  const [verifyCode, setVerifyCode] = useState('');
+  const [step, setStep] = useState<'idle' | 'setup' | 'verify'>('idle');
+
+  const { data: profile, refetch: refetchProfile } = useQuery<any>({
+    queryKey: ['profile'],
+    queryFn: () => api.get('/auth/profile'),
+  });
+
+  const twoFactorEnabled = profile?.twoFactorEnabled ?? false;
+
+  async function handleEnable() {
+    setIsEnabling(true);
+    try {
+      const response = await api.post<any>('/auth/2fa/enable');
+      setSecret(response.secret);
+      setOtpauthUrl(response.otpauthUrl);
+      setStep('setup');
+    } catch (error: any) {
+      toast.error(error?.response?.data?.message || 'Erro ao ativar 2FA');
+    } finally {
+      setIsEnabling(false);
+    }
+  }
+
+  async function handleVerify() {
+    if (verifyCode.length !== 6) {
+      toast.error('Digite o código completo de 6 dígitos');
+      return;
+    }
+    setIsEnabling(true);
+    try {
+      await api.post('/auth/2fa/verify', { token: verifyCode });
+      toast.success('Autenticação de dois fatores ativada!');
+      setStep('idle');
+      setSecret('');
+      setOtpauthUrl('');
+      setVerifyCode('');
+      refetchProfile();
+    } catch (error: any) {
+      toast.error(error?.response?.data?.message || 'Código inválido');
+    } finally {
+      setIsEnabling(false);
+    }
+  }
+
+  async function handleDisable() {
+    if (verifyCode.length !== 6) {
+      toast.error('Digite o código atual de 6 dígitos para desativar');
+      return;
+    }
+    setIsEnabling(true);
+    try {
+      await api.post('/auth/2fa/disable', { token: verifyCode });
+      toast.success('Autenticação de dois fatores desativada');
+      setVerifyCode('');
+      refetchProfile();
+    } catch (error: any) {
+      toast.error(error?.response?.data?.message || 'Código inválido');
+    } finally {
+      setIsEnabling(false);
+    }
+  }
+
+  if (step === 'setup' || step === 'verify') {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h3 className="text-lg font-semibold text-foreground">Configurar 2FA</h3>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Escaneie o QR Code ou insira a chave manualmente no seu aplicativo autenticador
+          </p>
+        </div>
+
+        {otpauthUrl && (
+          <div className="flex justify-center">
+            <div className="rounded-xl border border-border bg-background p-4">
+              <img
+                src={`https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(otpauthUrl)}&size=200x200`}
+                alt="QR Code para 2FA"
+                className="h-48 w-48"
+              />
+            </div>
+          </div>
+        )}
+
+        {secret && (
+          <div className="rounded-lg border border-border bg-background p-4">
+            <p className="mb-2 text-sm font-medium text-foreground">Ou insira manualmente:</p>
+            <div className="flex items-center gap-2">
+              <code className="flex-1 rounded bg-muted px-3 py-2 text-sm font-mono text-foreground break-all">
+                {secret}
+              </code>
+              <button
+                onClick={() => { navigator.clipboard.writeText(secret); toast.success('Chave copiada!'); }}
+                className="rounded-lg p-2 text-muted-foreground hover:bg-muted hover:text-foreground"
+              >
+                <Copy className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div>
+          <label className="mb-2 block text-sm font-medium text-foreground">
+            Código de verificação (6 dígitos)
+          </label>
+          <input
+            type="text"
+            inputMode="numeric"
+            maxLength={6}
+            value={verifyCode}
+            onChange={(e) => setVerifyCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+            placeholder="000000"
+            className="w-full rounded-lg border border-input bg-background px-3 py-2 text-center text-lg font-mono tracking-widest placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+          />
+        </div>
+
+        <div className="flex gap-3">
+          <button
+            onClick={handleVerify}
+            disabled={isEnabling}
+            className="flex-1 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+          >
+            {isEnabling ? (
+              <Loader2 className="mx-auto h-4 w-4 animate-spin" />
+            ) : (
+              'Verificar e Ativar'
+            )}
+          </button>
+          <button
+            onClick={() => { setStep('idle'); setSecret(''); setOtpauthUrl(''); setVerifyCode(''); }}
+            className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          >
+            Cancelar
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h3 className="text-lg font-semibold text-foreground">Autenticação de Dois Fatores</h3>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Adicione uma camada extra de segurança à sua conta
+        </p>
+      </div>
+
+      <div className="rounded-lg border border-border bg-background p-5">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex items-start gap-4">
+            <div className={cn(
+              'flex h-12 w-12 shrink-0 items-center justify-center rounded-lg',
+              twoFactorEnabled ? 'bg-green-500/10' : 'bg-muted',
+            )}>
+              <Smartphone className={cn(
+                'h-6 w-6',
+                twoFactorEnabled ? 'text-green-500' : 'text-muted-foreground',
+              )} />
+            </div>
+            <div>
+              <p className="font-medium text-foreground">
+                {twoFactorEnabled ? '2FA Ativado' : '2FA Desativado'}
+              </p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {twoFactorEnabled
+                  ? 'Sua conta está protegida com autenticação de dois fatores'
+                  : 'Proteja sua conta com um código adicional do seu aplicativo autenticador'}
+              </p>
+              {twoFactorEnabled && (
+                <p className="mt-2 text-xs text-green-600 dark:text-green-400">
+                  <Check className="mr-1 inline h-3 w-3" />
+                  Ativo desde o último login
+                </p>
+              )}
+            </div>
+          </div>
+
+          {twoFactorEnabled ? (
+            <div className="shrink-0 space-y-2">
+              <input
+                type="text"
+                inputMode="numeric"
+                maxLength={6}
+                value={verifyCode}
+                onChange={(e) => setVerifyCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                placeholder="Código 2FA"
+                className="w-full rounded-lg border border-input bg-background px-3 py-2 text-center text-sm font-mono tracking-wider placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+              <button
+                onClick={handleDisable}
+                disabled={isEnabling}
+                className="w-full rounded-lg border border-destructive/30 px-4 py-2 text-sm font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-50"
+              >
+                {isEnabling ? (
+                  <Loader2 className="mx-auto h-4 w-4 animate-spin" />
+                ) : (
+                  'Desativar 2FA'
+                )}
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={handleEnable}
+              disabled={isEnabling}
+              className="shrink-0 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+            >
+              {isEnabling ? (
+                <Loader2 className="mx-auto h-4 w-4 animate-spin" />
+              ) : (
+                'Ativar 2FA'
+              )}
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-border bg-background p-5">
+        <h4 className="mb-3 text-sm font-medium text-foreground">Como funciona</h4>
+        <ul className="space-y-2 text-sm text-muted-foreground">
+          <li className="flex items-start gap-2">
+            <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[11px] font-bold text-primary">1</span>
+            Instale um aplicativo autenticador (Google Authenticator, Authy, etc.)
+          </li>
+          <li className="flex items-start gap-2">
+            <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[11px] font-bold text-primary">2</span>
+            Escaneie o QR Code ou insira a chave manualmente no aplicativo
+          </li>
+          <li className="flex items-start gap-2">
+            <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[11px] font-bold text-primary">3</span>
+            Insira o código gerado pelo aplicativo para confirmar a ativação
+          </li>
+          <li className="flex items-start gap-2">
+            <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[11px] font-bold text-primary">4</span>
+            No próximo login, além da senha, você precisará do código do autenticador
+          </li>
+        </ul>
+      </div>
+    </div>
+  );
+}
+
 function usagePercent(used: number, limit: number): number {
   if (limit <= 0) return 0;
   return Math.min((used / limit) * 100, 100);
@@ -1728,6 +1978,7 @@ export default function SettingsPage() {
         {activeTab === 'geral' && <GeralTab />}
         {activeTab === 'equipe' && <EquipeTab />}
         {activeTab === 'whatsapp' && <WhatsAppTab />}
+        {activeTab === 'seguranca' && <SegurancaTab />}
         {activeTab === 'planos' && <PlanosTab />}
         {activeTab === 'api' && <APITab />}
       </div>

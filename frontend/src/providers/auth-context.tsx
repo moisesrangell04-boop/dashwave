@@ -72,12 +72,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const login = useCallback(async (email: string, password: string) => {
-    const response = await api.post<LoginResponse>('/auth/login', {
+    const response = await api.post<any>('/auth/login', {
       email,
       password,
     });
 
-    const { user, accessToken, refreshToken } = response;
+    if (response.requiresTwoFactor) {
+      router.push(`/auth/verify-2fa?userId=${response.userId}`);
+      return;
+    }
+
+    const { user, accessToken, refreshToken } = response as LoginResponse;
     const tenant = response.tenant || { id: user.tenantId } as Tenant;
 
     localStorage.setItem('wave_access_token', accessToken);
@@ -89,7 +94,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     setState({ user, tenant, token: accessToken });
-  }, []);
+  }, [router]);
 
   const register = useCallback(async (data: RegisterData) => {
     const response = await api.post<LoginResponse>('/auth/register', data);

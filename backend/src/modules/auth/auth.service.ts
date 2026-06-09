@@ -262,7 +262,7 @@ export class AuthService {
   async verify2FA(userId: string, token: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, twoFactorSecret: true, twoFactorEnabled: true },
+      include: { tenant: true },
     });
 
     if (!user || !user.twoFactorSecret) {
@@ -280,9 +280,40 @@ export class AuthService {
         where: { id: userId },
         data: { twoFactorEnabled: true },
       });
+      return { verified: true, enabled: true };
     }
 
-    return { verified: true, enabled: true };
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { lastLoginAt: new Date() },
+    });
+
+    const tokens = await this.generateTokens({
+      sub: user.id,
+      email: user.email,
+      tenantId: user.tenantId,
+      role: user.role,
+    });
+
+    return {
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        tenantId: user.tenantId,
+        workspaceId: user.workspaceId,
+        avatar: user.avatar,
+        twoFactorEnabled: user.twoFactorEnabled,
+        lastLoginAt: new Date().toISOString(),
+        createdAt: user.createdAt,
+      },
+      tenant: user.tenant
+        ? { id: user.tenant.id, name: user.tenant.name, slug: user.tenant.slug, plan: user.tenant.plan }
+        : { id: user.tenantId },
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+    };
   }
 
   async disable2FA(userId: string, token: string) {

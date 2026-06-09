@@ -33,8 +33,8 @@ function Verify2FAForm() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const token = code.join('');
-    if (token.length !== 6) {
+    const totp = code.join('');
+    if (totp.length !== 6) {
       toast.error('Digite o código completo de 6 dígitos');
       return;
     }
@@ -44,9 +44,22 @@ function Verify2FAForm() {
     }
     setIsSubmitting(true);
     try {
-      await api.post('/auth/2fa/verify', { userId, token });
-      toast.success('Autenticação verificada com sucesso!');
-      router.push('/dashboard');
+      const response = await api.post<any>('/auth/2fa/verify', { userId, token: totp });
+
+      if (response.accessToken) {
+        localStorage.setItem('wave_access_token', response.accessToken);
+        localStorage.setItem('wave_refresh_token', response.refreshToken);
+        localStorage.setItem('wave_user', JSON.stringify(response.user));
+        localStorage.setItem('wave_tenant_id', response.tenant.id);
+        if (response.tenant.name) {
+          localStorage.setItem('wave_tenant', JSON.stringify(response.tenant));
+        }
+        toast.success('Login verificado com sucesso!');
+        router.push('/dashboard');
+      } else {
+        toast.success('Autenticação de dois fatores ativada com sucesso!');
+        router.push('/dashboard/settings');
+      }
     } catch (error: any) {
       const message = error?.response?.data?.message || 'Código inválido';
       toast.error(message);

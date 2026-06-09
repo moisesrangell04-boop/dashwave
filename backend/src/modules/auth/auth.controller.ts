@@ -84,20 +84,21 @@ export class AuthController {
     return this.authService.enable2FA(userId);
   }
 
+  @Public()
   @Post('2fa/verify')
-  @ApiBearerAuth('access-token')
   @ApiOperation({ summary: 'Verify and enable 2FA with TOTP code' })
   @ApiBody({
     schema: {
       type: 'object',
       properties: {
+        userId: { type: 'string', example: 'uuid' },
         token: { type: 'string', example: '123456' },
       },
     },
   })
   @ApiResponse({ status: 200, description: '2FA verified and enabled' })
   verify2FA(
-    @CurrentUser('id') userId: string,
+    @Body('userId') userId: string,
     @Body('token') token: string,
   ) {
     return this.authService.verify2FA(userId, token);

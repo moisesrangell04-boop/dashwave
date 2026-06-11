@@ -29,6 +29,13 @@ import { CurrentUser, CurrentUserData } from '@common/decorators/current-user.de
 export class WhatsAppController {
   constructor(private readonly whatsappService: WhatsAppService) {}
 
+  @Get('meta/webhook-info')
+  @ApiOperation({ summary: 'Get Meta Cloud API webhook URL and verify token' })
+  @ApiResponse({ status: 200, description: 'Webhook info retrieved successfully' })
+  getMetaWebhookInfo() {
+    return this.whatsappService.getMetaWebhookInfo();
+  }
+
   @Post('instances')
   @ApiOperation({ summary: 'Create a new WhatsApp instance' })
   @ApiResponse({ status: 201, description: 'Instance created successfully' })

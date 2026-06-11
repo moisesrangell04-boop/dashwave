@@ -120,8 +120,24 @@ export class WhatsAppService {
         ...(dto.metaPhoneId !== undefined && { metaPhoneId: dto.metaPhoneId }),
         ...(dto.metaBusinessId !== undefined && { metaBusinessId: dto.metaBusinessId }),
         ...(dto.settings && { settings: dto.settings }),
+        ...(instance.provider === WhatsAppProvider.meta_cloud &&
+          dto.metaPhoneId !== undefined && {
+            status: dto.metaPhoneId
+              ? InstanceStatus.connected
+              : InstanceStatus.disconnected,
+          }),
       },
     });
+  }
+
+  getMetaWebhookInfo() {
+    const backendUrl = this.configService.get<string>('backendUrl');
+    const verifyToken = this.configService.get<string>('whatsapp.meta.webhookVerifyToken');
+
+    return {
+      webhookUrl: `${backendUrl}/api/webhooks/meta`,
+      verifyToken,
+    };
   }
 
   async remove(tenantId: string, workspaceId: string, id: string) {

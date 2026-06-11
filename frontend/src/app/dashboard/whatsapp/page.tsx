@@ -176,9 +176,14 @@ function MetaCloudConfigModal({ instance, open, onClose }: { instance: WhatsAppI
   const queryClient = useQueryClient();
   const [metaPhoneId, setMetaPhoneId] = useState('');
   const [metaBusinessId, setMetaBusinessId] = useState('');
-  const apiBase = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api/v1').replace(/\/$/, '');
-  const webhookUrl = `${apiBase.replace('/api/v1', '')}/api/webhooks/meta`;
-  const verifyToken = 'Valor de META_WEBHOOK_VERIFY_TOKEN no seu .env';
+  const { data: webhookInfo, isLoading: isLoadingWebhookInfo } = useQuery<{ webhookUrl: string; verifyToken: string }>({
+    queryKey: ['meta-webhook-info'],
+    queryFn: () => api.get('/whatsapp/meta/webhook-info'),
+    enabled: open,
+  });
+
+  const webhookUrl = isLoadingWebhookInfo ? 'Carregando...' : webhookInfo?.webhookUrl || '';
+  const verifyToken = isLoadingWebhookInfo ? 'Carregando...' : webhookInfo?.verifyToken || '';
 
   useEffect(() => {
     if (open && instance) {

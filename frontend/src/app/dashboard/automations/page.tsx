@@ -19,6 +19,8 @@ import {
   Tag,
   Globe,
   ArrowRight,
+  ArrowRightLeft,
+  TrendingUp,
   ListOrdered,
   Play,
   ToggleLeft,
@@ -43,6 +45,7 @@ const TRIGGER_TYPES = [
   { value: 'conversation_assigned', label: 'Conversa Atribuída', icon: Users },
   { value: 'schedule', label: 'Agendamento', icon: Clock },
   { value: 'webhook', label: 'Webhook', icon: Globe },
+  { value: 'pipedrive.deal_updated', label: 'Deal Atualizado no Pipedrive', icon: TrendingUp },
 ] as const;
 
 const ACTION_TYPES = [
@@ -54,6 +57,7 @@ const ACTION_TYPES = [
   { value: 'webhook', label: 'Webhook', icon: Globe },
   { value: 'notify', label: 'Notificação', icon: Bell },
   { value: 'close_conversation', label: 'Fechar Conversa', icon: X },
+  { value: 'pipedrive_update_stage', label: 'Mover Etapa no Pipedrive', icon: ArrowRightLeft },
 ] as const;
 
 const CONDITION_FIELDS = [
@@ -105,6 +109,7 @@ const ACTION_LABELS: Record<string, string> = {
   webhook: 'Webhook',
   notify: 'Notificação',
   close_conversation: 'Fechar Conversa',
+  pipedrive_update_stage: 'Mover Etapa no Pipedrive',
 };
 
 const ACTION_COLORS: Record<string, string> = {
@@ -116,6 +121,7 @@ const ACTION_COLORS: Record<string, string> = {
   webhook: 'bg-cyan-500/10 text-cyan-600 dark:text-cyan-400',
   notify: 'bg-orange-500/10 text-orange-600 dark:text-orange-400',
   close_conversation: 'bg-red-500/10 text-red-600 dark:text-red-400',
+  pipedrive_update_stage: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
 };
 
 const TRIGGER_LABELS: Record<string, string> = {
@@ -127,6 +133,7 @@ const TRIGGER_LABELS: Record<string, string> = {
   conversation_assigned: 'Conversa Atribuída',
   schedule: 'Agendamento',
   webhook: 'Webhook',
+  'pipedrive.deal_updated': 'Deal Atualizado no Pipedrive',
 };
 
 const TRIGGER_COLORS: Record<string, string> = {
@@ -520,6 +527,24 @@ function AutomationActionConfig({
                     ))}
                 </select>
               )}
+            </div>
+          )}
+
+          {action.type === 'pipedrive_update_stage' && (
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">
+                ID da Etapa no Pipedrive (stage_id)
+              </label>
+              <input
+                type="number"
+                value={action.config.stageId ?? ''}
+                onChange={(e) => onUpdate(index, 'stageId', e.target.value === '' ? undefined : Number(e.target.value))}
+                placeholder="Ex: 42"
+                className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+              <p className="text-[11px] text-muted-foreground">
+                Esse ID é da etapa no Pipedrive (não do Wave CRM). Você encontra o stage_id nas configurações do pipeline no Pipedrive.
+              </p>
             </div>
           )}
 

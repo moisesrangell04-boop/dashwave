@@ -7,6 +7,7 @@ import { api } from '@/lib/api';
 import { cn, formatRelativeTime } from '@/lib/utils';
 import type { Notification } from '@/types';
 import { toast } from 'sonner';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 
 const NOTIFICATION_ICONS: Record<string, React.ElementType> = {
@@ -147,12 +148,13 @@ export function NotificationDropdown() {
 
           {notifications.length > 0 && (
             <div className="border-t border-border px-4 py-2">
-              <button
-                onClick={() => { setOpen(false); }}
+              <Link
+                href="/dashboard/notifications"
+                onClick={() => setOpen(false)}
                 className="flex w-full items-center justify-center gap-1 text-xs text-muted-foreground hover:text-foreground"
               >
                 Ver todas <ArrowRight className="h-3 w-3" />
-              </button>
+              </Link>
             </div>
           )}
         </div>

@@ -178,7 +178,7 @@ export default function LeadDetailPage() {
             </div>
             <div>
               <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Score</p>
-              <p className="mt-1 text-lg font-bold text-foreground">{lead.score}</p>
+              <p className="mt-1 text-lg font-bold text-foreground">{lead.score ?? 0}</p>
             </div>
             <div>
               <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Origem</p>
@@ -208,13 +208,13 @@ export default function LeadDetailPage() {
             </div>
           </div>
 
-          {lead.tags.length > 0 && (
+          {(lead.tags ?? []).length > 0 && (
             <div className="rounded-lg border border-border bg-card p-4">
               <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
                 <Tag className="mr-1 inline h-3.5 w-3.5" /> Tags
               </p>
               <div className="flex flex-wrap gap-2">
-                {lead.tags.map((tag) => (
+                {(lead.tags ?? []).map((tag) => (
                   <span key={tag} className="inline-flex items-center rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
                     {tag}
                   </span>

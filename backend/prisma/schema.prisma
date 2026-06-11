@@ -196,6 +196,7 @@ model Tenant {
   apiKeys              ApiKey[]
   notifications        Notification[]
   automationLogs       AutomationLog[]
+  pipedriveIntegrations PipedriveIntegration[]
 }
 
 model Workspace {
@@ -219,6 +220,7 @@ model Workspace {
   aiAgents          AIAgent[]
   automations       Automation[]
   automationLogs    AutomationLog[]
+  pipedriveIntegrations PipedriveIntegration[]
 
   @@unique([tenantId, name])
 
@@ -579,6 +581,35 @@ model ApiKey {
 
   @@index([tenantId])
   @@index([key])
+}
+
+model PipedriveIntegration {
+  id            String    @id @default(uuid())
+  tenantId      String
+  workspaceId   String
+  companyDomain String
+  accessToken   String
+  refreshToken  String?
+  tokenExpiresAt DateTime?
+  pipedriveUserId Int?
+  pipedriveName  String?
+  pipedriveEmail String?
+  isActive      Boolean   @default(true)
+  syncContacts  Boolean   @default(true)
+  syncLeads     Boolean   @default(true)
+  syncPipelines Boolean   @default(false)
+  lastSyncAt    DateTime?
+  webhookId       Int?
+  webhookAuthUser String?
+  webhookAuthPass String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@unique([tenantId, workspaceId])
+  @@index([tenantId])
 }
 
 model Notification {

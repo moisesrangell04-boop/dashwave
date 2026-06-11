@@ -312,6 +312,26 @@ export interface Notification {
   createdAt: string;
 }
 
+export interface PipedriveIntegration {
+  id: string;
+  tenantId: string;
+  workspaceId: string;
+  companyDomain: string;
+  pipedriveUserId?: number;
+  pipedriveName?: string;
+  pipedriveEmail?: string;
+  isActive: boolean;
+  syncContacts: boolean;
+  syncLeads: boolean;
+  syncPipelines: boolean;
+  webhookId?: number;
+  webhookAuthUser?: string;
+  webhookAuthPass?: string;
+  lastSyncAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ApiError {
   success: false;
   statusCode: number;

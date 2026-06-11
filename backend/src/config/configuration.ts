@@ -1,6 +1,7 @@
 export default () => ({
   port: parseInt(process.env.PORT || '4000', 10),
   frontendUrl: process.env.FRONTEND_URL || 'http://localhost:3000',
+  backendUrl: process.env.BACKEND_URL || 'http://localhost:4000',
   jwt: {
     secret: process.env.JWT_SECRET,
     refreshSecret: process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET,
@@ -48,6 +49,11 @@ export default () => ({
       webhookVerifyToken: process.env.META_WEBHOOK_VERIFY_TOKEN || '',
       appSecret: process.env.META_APP_SECRET || '',
     },
+  },
+  pipedrive: {
+    clientId: process.env.PIPEDRIVE_CLIENT_ID || '',
+    clientSecret: process.env.PIPEDRIVE_CLIENT_SECRET || '',
+    redirectUri: process.env.PIPEDRIVE_REDIRECT_URI || 'http://localhost:4000/api/pipedrive/oauth/callback',
   },
   throttle: {
     ttl: parseInt(process.env.THROTTLE_TTL || '60', 10),

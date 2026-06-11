@@ -21,11 +21,13 @@ import {
   CheckCircle,
   ChevronLeft,
   ChevronRight,
+  Download,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn, formatPhone, formatRelativeTime } from '@/lib/utils';
 import type { Contact, PaginatedResponse } from '@/types';
 import { toast } from 'sonner';
+import { exportToCSV } from '@/lib/csv';
 
 function SkeletonRow() {
   return (
@@ -212,9 +214,27 @@ export default function ContactsPage() {
           <h2 className="text-2xl font-bold tracking-tight text-foreground">Contatos</h2>
           <p className="mt-1 text-sm text-muted-foreground">Gerencie seus contatos</p>
         </div>
-        <button onClick={handleCreate} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow transition-colors hover:bg-primary/90">
-          <Plus className="h-4 w-4" /> Novo Contato
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => {
+              if (contacts.length === 0) { toast.error('Nenhum contato para exportar'); return; }
+              exportToCSV(contacts, [
+                { key: 'name', label: 'Nome' },
+                { key: 'phone', label: 'Telefone' },
+                { key: 'email', label: 'E-mail' },
+                { key: 'tags', label: 'Tags' },
+                { key: 'isBlocked', label: 'Bloqueado' },
+                { key: 'createdAt', label: 'Criado em' },
+              ], 'contatos');
+            }}
+            className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+          >
+            <Download className="h-4 w-4" /> Exportar CSV
+          </button>
+          <button onClick={handleCreate} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow transition-colors hover:bg-primary/90">
+            <Plus className="h-4 w-4" /> Novo Contato
+          </button>
+        </div>
       </div>
 
       <div className="relative">

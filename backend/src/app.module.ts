@@ -25,6 +25,7 @@ import { UserModule } from './modules/user/user.module';
 import { HealthModule } from './modules/health/health.module';
 import { ApiKeysModule } from './modules/api-keys/api-keys.module';
 import { NotificationModule } from './modules/notification/notification.module';
+import { PipedriveModule } from './modules/pipedrive/pipedrive.module';
 import { MailerModule } from './infra/mail/mailer.module';
 import { GatewayModule } from './modules/gateway/gateway.module';
 
@@ -95,6 +96,7 @@ import { JwtStrategy } from './common/strategies/jwt.strategy';
     GatewayModule,
     ApiKeysModule,
     NotificationModule,
+    PipedriveModule,
   ],
   providers: [
     PrismaService,

@@ -3,8 +3,11 @@ import {
   NotFoundException,
   BadRequestException,
   Logger,
+  Optional,
 } from '@nestjs/common';
 import { PrismaService } from '@infra/database/prisma/prisma.service';
+import { WhatsAppService } from '@modules/whatsapp/whatsapp.service';
+import { PipedriveService } from '@modules/pipedrive/pipedrive.service';
 import { CreateAutomationDto } from './dto/create-automation.dto';
 import { UpdateAutomationDto } from './dto/update-automation.dto';
 import { TestAutomationDto } from './dto/test-automation.dto';
@@ -13,7 +16,11 @@ import { TestAutomationDto } from './dto/test-automation.dto';
 export class AutomationService {
   private readonly logger = new Logger(AutomationService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly whatsappService: WhatsAppService,
+    @Optional() private readonly pipedriveService: PipedriveService,
+  ) {}
 
   private readonly operators: Record<string, (a: any, b: any) => boolean> = {
     equals: (a, b) => a === b,
@@ -235,6 +242,7 @@ export class AutomationService {
       return [];
     }
 
+    const enrichedPayload = { ...payload, workspaceId };
     const results: ExecutionResult[] = [];
 
     for (const automation of matching) {
@@ -242,11 +250,11 @@ export class AutomationService {
       let shouldExecute = true;
 
       if (trigger.conditions && trigger.conditions.length > 0) {
-        shouldExecute = this.evaluateConditions(trigger.conditions, payload);
+        shouldExecute = this.evaluateConditions(trigger.conditions, enrichedPayload);
       }
 
       if (shouldExecute) {
-        const result = await this.executeAutomation(automation, payload);
+        const result = await this.executeAutomation(automation, enrichedPayload);
         results.push(result);
       }
     }
@@ -365,19 +373,18 @@ export class AutomationService {
 
         const conversation = await this.prisma.conversation.findUnique({
           where: { id: conversationId },
+          include: {
+            contact: { select: { phone: true } },
+          },
         });
 
         if (!conversation) {
           throw new Error(`Conversation ${conversationId} not found`);
         }
 
-        const message = this.interpolate(config.message, payload);
+        const messageContent = this.interpolate(config.message, payload);
 
-        const contact = await this.prisma.contact.findUnique({
-          where: { id: conversation.contactId },
-        });
-
-        return this.prisma.message.create({
+        const dbMessage = await this.prisma.message.create({
           data: {
             tenantId,
             workspaceId: conversation.workspaceId,
@@ -388,11 +395,38 @@ export class AutomationService {
             type: config.templateId ? 'template' : 'text',
             status: 'pending',
             origin: 'automation',
-            content: message,
+            content: messageContent,
             automationRuleId: payload._automationId,
             metadata: { automationConfig: config },
           },
         });
+
+        await this.prisma.conversation.update({
+          where: { id: conversationId },
+          data: { lastMessage: messageContent, lastMessageAt: new Date(), lastActivityAt: new Date() },
+        });
+
+        if (this.whatsappService && (conversation as any).contact?.phone) {
+          try {
+            await this.whatsappService.sendMessage(tenantId, conversation.workspaceId, conversation.whatsappInstanceId, {
+              to: (conversation as any).contact.phone,
+              message: messageContent,
+              type: 'text',
+            });
+            await this.prisma.message.update({
+              where: { id: dbMessage.id },
+              data: { status: 'sent', sentAt: new Date() },
+            });
+          } catch (err) {
+            this.logger.error(`Automation send_message WhatsApp delivery failed: ${err.message}`);
+            await this.prisma.message.update({
+              where: { id: dbMessage.id },
+              data: { status: 'failed' },
+            });
+          }
+        }
+
+        return dbMessage;
       }
 
       case 'change_stage': {
@@ -431,6 +465,38 @@ export class AutomationService {
             lastActivityAt: new Date(),
           },
         });
+      }
+
+      case 'pipedrive_update_stage': {
+        if (!this.pipedriveService) {
+          throw new Error('Pipedrive integration is not available');
+        }
+
+        const leadId = payload.leadId || config.leadId;
+        const dealId = payload.pipedriveDealId || config.pipedriveDealId;
+        const stageId = config.stageId;
+
+        if (!stageId) {
+          throw new Error('stageId is required for pipedrive_update_stage action');
+        }
+
+        let pipedriveDealId = dealId;
+
+        if (!pipedriveDealId && leadId) {
+          const lead = await this.prisma.lead.findFirst({
+            where: { id: leadId, tenantId },
+          });
+
+          pipedriveDealId = (lead?.metadata as any)?.pipedriveDealId;
+        }
+
+        if (!pipedriveDealId) {
+          throw new Error('pipedriveDealId is required for pipedrive_update_stage action');
+        }
+
+        const workspaceId = payload.workspaceId || config.workspaceId;
+
+        return this.pipedriveService.updateDealStage(tenantId, workspaceId, pipedriveDealId, stageId);
       }
 
       case 'assign_user': {

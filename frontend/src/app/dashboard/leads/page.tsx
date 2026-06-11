@@ -17,6 +17,7 @@ import {
   ChevronDown,
   AlertCircle,
   Loader2,
+  Download,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import {
@@ -30,6 +31,7 @@ import {
 import { useDebounce } from '@/hooks';
 import type { Lead, Pipeline, PipelineStage, Contact, User as UserType, PaginatedResponse } from '@/types';
 import { toast } from 'sonner';
+import { exportToCSV } from '@/lib/csv';
 
 const LEAD_STATUS_LABELS: Record<string, string> = {
   active: 'Ativo',
@@ -748,7 +750,7 @@ function LeadCard({
             </div>
           )}
         </div>
-        {lead.tags.length > 0 && (
+        {(lead.tags ?? []).length > 0 && (
           <div className="flex gap-0.5">
             {lead.tags.slice(0, 2).map((tag) => (
               <span
@@ -778,6 +780,7 @@ export default function LeadsPage() {
   const [userFilter, setUserFilter] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [draggedLead, setDraggedLead] = useState<Lead | null>(null);
+  const [dragOverStageId, setDragOverStageId] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
 
   const { data: pipelines } = useQuery<Pipeline[]>({
@@ -875,16 +878,25 @@ export default function LeadsPage() {
     setDraggedLead(lead);
     e.dataTransfer.setData('text/plain', lead.id);
     e.dataTransfer.effectAllowed = 'move';
+    e.currentTarget.classList.add('opacity-50');
   }, []);
 
-  const handleDragOver = useCallback((e: React.DragEvent) => {
+  const handleDragOver = useCallback((e: React.DragEvent, stageId: string) => {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
+    setDragOverStageId(stageId);
   }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent, stageId: string) => {
+    if (dragOverStageId === stageId) {
+      setDragOverStageId(null);
+    }
+  }, [dragOverStageId]);
 
   const handleDrop = useCallback(
     (e: React.DragEvent, stageId: string) => {
       e.preventDefault();
+      setDragOverStageId(null);
       if (draggedLead && draggedLead.stageId !== stageId) {
         moveMutation.mutate({ leadId: draggedLead.id, stageId });
       }
@@ -895,6 +907,7 @@ export default function LeadsPage() {
 
   const handleDragEnd = useCallback(() => {
     setDraggedLead(null);
+    setDragOverStageId(null);
   }, []);
 
   const userList = useMemo(() => users?.data ?? [], [users]);
@@ -920,6 +933,24 @@ export default function LeadsPage() {
               </option>
             ))}
           </select>
+          <button
+            onClick={() => {
+              if (leads.length === 0) { toast.error('Nenhum lead para exportar'); return; }
+              exportToCSV(leads, [
+                { key: 'title', label: 'Título' },
+                { key: 'value', label: 'Valor' },
+                { key: 'status', label: 'Status' },
+                { key: 'source', label: 'Origem' },
+                { key: 'priority', label: 'Prioridade' },
+                { key: 'contactId', label: 'ID Contato' },
+                { key: 'createdAt', label: 'Criado em' },
+              ], 'leads');
+            }}
+            className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+          >
+            <Download className="h-4 w-4" />
+            Exportar CSV
+          </button>
           <button
             onClick={() => setShowCreateModal(true)}
             className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow transition-colors hover:bg-primary/90"
@@ -1064,7 +1095,8 @@ export default function LeadsPage() {
               <div
                 key={stage.id}
                 className="w-72 shrink-0"
-                onDragOver={handleDragOver}
+                onDragOver={(e) => handleDragOver(e, stage.id)}
+                onDragLeave={(e) => handleDragLeave(e, stage.id)}
                 onDrop={(e) => handleDrop(e, stage.id)}
               >
                 <div className="mb-3">
@@ -1088,8 +1120,10 @@ export default function LeadsPage() {
                 </div>
                 <div
                   className={cn(
-                    'min-h-[200px] space-y-3 rounded-lg border-2 border-dashed p-2 transition-colors',
-                    draggedLead
+                    'min-h-[200px] space-y-3 rounded-lg border-2 border-dashed p-2 transition-all duration-200',
+                    dragOverStageId === stage.id
+                      ? 'border-primary bg-primary/10 scale-[1.02] shadow-md'
+                      : draggedLead
                       ? 'border-primary/30 bg-primary/5'
                       : 'border-transparent',
                   )}

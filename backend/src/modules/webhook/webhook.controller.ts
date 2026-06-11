@@ -22,6 +22,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import * as crypto from 'crypto';
 import { WebhookService } from './webhook.service';
+import { PipedriveService } from '@modules/pipedrive/pipedrive.service';
 import { CreateWebhookDto } from './dto/create-webhook.dto';
 import { JwtAuthGuard } from '@common/guards/jwt-auth.guard';
 import { CurrentUser } from '@common/decorators/current-user.decorator';
@@ -33,7 +34,42 @@ export class WebhookController {
   constructor(
     private readonly webhookService: WebhookService,
     private readonly configService: ConfigService,
+    private readonly pipedriveService: PipedriveService,
   ) {}
+
+  @Public()
+  @Post('pipedrive/:tenantId/:workspaceId')
+  @ApiExcludeEndpoint()
+  @ApiOperation({ summary: 'Pipedrive webhook receiver (deal updated)' })
+  @ApiResponse({ status: 200, description: 'Webhook processed successfully' })
+  async receivePipedrive(
+    @Param('tenantId') tenantId: string,
+    @Param('workspaceId') workspaceId: string,
+    @Headers('authorization') authorization: string,
+    @Body() payload: any,
+  ) {
+    const credentials = this.parseBasicAuth(authorization);
+    const isValid = await this.pipedriveService.verifyWebhookAuth(
+      tenantId,
+      workspaceId,
+      credentials?.user,
+      credentials?.pass,
+    );
+
+    if (!isValid) {
+      throw new UnauthorizedException('Invalid webhook credentials');
+    }
+
+    return this.webhookService.handlePipedriveWebhook(tenantId, workspaceId, payload);
+  }
+
+  private parseBasicAuth(header?: string): { user: string; pass: string } | null {
+    if (!header?.startsWith('Basic ')) return null;
+
+    const decoded = Buffer.from(header.slice(6), 'base64').toString('utf-8');
+    const [user, pass] = decoded.split(':');
+    return { user, pass };
+  }
 
   @Public()
   @Post('evolution/:instanceName')

@@ -33,16 +33,21 @@ import {
   Send,
   Webhook,
   Smartphone,
+  BarChart3,
+  LogOut,
+  Link2,
+  Unlink,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn, statusColor } from '@/lib/utils';
-import type { Tenant, User, UserRole, WhatsAppInstance } from '@/types';
+import type { Tenant, User, UserRole, WhatsAppInstance, PipedriveIntegration } from '@/types';
 import { toast } from 'sonner';
 
 const TABS = [
   { id: 'geral', label: 'Geral', icon: Settings },
   { id: 'equipe', label: 'Equipe', icon: Users },
   { id: 'whatsapp', label: 'WhatsApp', icon: MessageCircle },
+  { id: 'pipedrive', label: 'Pipedrive', icon: BarChart3 },
   { id: 'seguranca', label: 'Segurança', icon: Shield },
   { id: 'planos', label: 'Planos', icon: CreditCard },
   { id: 'api', label: 'API', icon: Globe },
@@ -274,6 +279,7 @@ function GeralTab() {
   const [slug, setSlug] = useState('');
   const [primaryColor, setPrimaryColor] = useState('#6366f1');
   const [logoPreview, setLogoPreview] = useState('');
+  const [logoFile, setLogoFile] = useState<File | null>(null);
 
   const { data: tenant, isLoading } = useQuery<Tenant>({
     queryKey: ['tenant'],
@@ -301,21 +307,33 @@ function GeralTab() {
     onError: () => toast.error('Erro ao salvar configurações'),
   });
 
-  function handleSave(e: React.FormEvent) {
+  async function handleSave(e: React.FormEvent) {
     e.preventDefault();
     if (!name.trim()) {
       toast.error('O nome da empresa é obrigatório');
       return;
     }
-    updateMutation.mutate({
+    const payload: any = {
       name: name.trim(),
       primaryColor,
-    });
+    };
+    if (logoFile) {
+      const reader = new FileReader();
+      payload.logo = await new Promise<string>((resolve) => {
+        reader.onload = (event) => resolve(event.target?.result as string);
+        reader.readAsDataURL(logoFile);
+      });
+      setLogoFile(null);
+    } else if (logoPreview && (!tenant?.logo || logoPreview !== tenant.logo)) {
+      payload.logo = logoPreview;
+    }
+    updateMutation.mutate(payload);
   }
 
   function handleLogoChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (file) {
+      setLogoFile(file);
       const reader = new FileReader();
       reader.onload = (event) => {
         setLogoPreview(event.target?.result as string);
@@ -658,6 +676,7 @@ function InviteMemberModal({
   onClose: () => void;
 }) {
   const queryClient = useQueryClient();
+  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [role, setRole] = useState<UserRole>('agent');
 
@@ -667,6 +686,7 @@ function InviteMemberModal({
       queryClient.invalidateQueries({ queryKey: ['users'] });
       toast.success('Convite enviado com sucesso');
       onClose();
+      setName('');
       setEmail('');
       setRole('agent');
     },
@@ -675,16 +695,33 @@ function InviteMemberModal({
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (!name.trim()) {
+      toast.error('O nome é obrigatório');
+      return;
+    }
     if (!email.trim()) {
       toast.error('O e-mail é obrigatório');
       return;
     }
-    inviteMutation.mutate({ email: email.trim(), role });
+    inviteMutation.mutate({ name: name.trim(), email: email.trim(), role });
   }
 
   return (
     <Modal open={open} onClose={onClose} title="Convidar Membro" size="md">
       <form onSubmit={handleSubmit} className="space-y-5">
+        <div>
+          <label className="mb-1.5 block text-sm font-medium text-foreground">
+            Nome <span className="text-destructive">*</span>
+          </label>
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Nome do membro"
+            className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            required
+          />
+        </div>
         <div>
           <label className="mb-1.5 block text-sm font-medium text-foreground">
             E-mail <span className="text-destructive">*</span>
@@ -740,7 +777,11 @@ function InviteMemberModal({
 }
 
 function WhatsAppTab() {
+  const queryClient = useQueryClient();
   const [showConnectModal, setShowConnectModal] = useState(false);
+  const [connectingId, setConnectingId] = useState<string | null>(null);
+  const [qrCodeData, setQrCodeData] = useState<string | null>(null);
+  const [qrError, setQrError] = useState<string | null>(null);
 
   const { data: instances, isLoading, isError, refetch } = useQuery<WhatsAppInstance[]>({
     queryKey: ['whatsapp-instances'],
@@ -748,6 +789,71 @@ function WhatsAppTab() {
   });
 
   const instanceList = useMemo(() => instances ?? [], [instances]);
+
+  const connectMutation = useMutation({
+    mutationFn: (id: string) => api.post(`/whatsapp/instances/${id}/connect`),
+    onSuccess: (_, id) => {
+      fetchQrCode(id);
+    },
+    onError: () => {
+      toast.error('Erro ao iniciar conexão');
+      setConnectingId(null);
+    },
+  });
+
+  const disconnectMutation = useMutation({
+    mutationFn: (id: string) => api.post(`/whatsapp/instances/${id}/disconnect`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['whatsapp-instances'] });
+      toast.success('Instância desconectada');
+    },
+    onError: () => toast.error('Erro ao desconectar'),
+  });
+
+  const restartMutation = useMutation({
+    mutationFn: (id: string) => api.post(`/whatsapp/instances/${id}/restart`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['whatsapp-instances'] });
+      toast.success('Instância reiniciada');
+    },
+    onError: () => toast.error('Erro ao reiniciar'),
+  });
+
+  async function fetchQrCode(id: string) {
+    setConnectingId(id);
+    setQrError(null);
+    try {
+      for (let i = 0; i < 30; i++) {
+        await new Promise((r) => setTimeout(r, 2000));
+        try {
+          const response = await api.get<any>(`/whatsapp/instances/${id}/qrcode`);
+          if (response.qrcode || response.base64) {
+            setQrCodeData(response.qrcode || response.base64);
+            return;
+          }
+          const statusRes = await api.get<any>(`/whatsapp/instances/${id}`);
+          if (statusRes.status === 'connected') {
+            setConnectingId(null);
+            setQrCodeData(null);
+            refetch();
+            toast.success('Instância conectada com sucesso!');
+            return;
+          }
+        } catch {
+          continue;
+        }
+      }
+      setQrError('Tempo limite. Clique novamente para tentar.');
+    } catch {
+      setQrError('Erro ao obter QR code');
+    }
+  }
+
+  function closeQrModal() {
+    setConnectingId(null);
+    setQrCodeData(null);
+    setQrError(null);
+  }
 
   if (isLoading) {
     return (
@@ -842,12 +948,76 @@ function WhatsAppTab() {
                   <span>{instance.provider === 'evolution' ? 'Evolution API' : 'Meta Cloud'}</span>
                 </div>
               </div>
+              <div className="flex items-center gap-2 shrink-0">
+                {instance.status === 'disconnected' || instance.status === 'error' ? (
+                  <button
+                    onClick={() => {
+                      setConnectingId(instance.id);
+                      connectMutation.mutate(instance.id);
+                    }}
+                    disabled={connectMutation.isPending && connectingId === instance.id}
+                    className="rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                  >
+                    Conectar
+                  </button>
+                ) : instance.status === 'connected' ? (
+                  <button
+                    onClick={() => {
+                      if (confirm('Desconectar esta instância?')) {
+                        disconnectMutation.mutate(instance.id);
+                      }
+                    }}
+                    className="rounded-lg border border-destructive/30 px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10"
+                  >
+                    Desconectar
+                  </button>
+                ) : null}
+                <button
+                  onClick={() => restartMutation.mutate(instance.id)}
+                  className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted"
+                  title="Reiniciar"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                </button>
+              </div>
             </div>
           ))}
         </div>
       )}
 
       <ConnectInstanceModal open={showConnectModal} onClose={() => setShowConnectModal(false)} />
+
+      <Modal open={!!connectingId} onClose={closeQrModal} title="Conectar WhatsApp" size="sm">
+        <div className="flex flex-col items-center py-4">
+          {qrCodeData ? (
+            <>
+              <p className="mb-4 text-sm text-muted-foreground text-center">
+                Escaneie o QR Code abaixo com o WhatsApp do seu celular
+              </p>
+              <img
+                src={qrCodeData}
+                alt="WhatsApp QR Code"
+                className="h-64 w-64 rounded-xl border border-border"
+              />
+            </>
+          ) : qrError ? (
+            <div className="text-center">
+              <p className="mb-4 text-sm text-destructive">{qrError}</p>
+              <button
+                onClick={() => connectingId && connectMutation.mutate(connectingId)}
+                className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+              >
+                Tentar Novamente
+              </button>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center gap-3">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              <p className="text-sm text-muted-foreground">Gerando QR Code...</p>
+            </div>
+          )}
+        </div>
+      </Modal>
     </div>
   );
 }
@@ -864,16 +1034,23 @@ function ConnectInstanceModal({
   const [phoneNumber, setPhoneNumber] = useState('');
   const [provider, setProvider] = useState<'evolution' | 'meta_cloud'>('evolution');
 
-  const connectMutation = useMutation({
+  const createMutation = useMutation({
     mutationFn: (data: any) => api.post('/whatsapp/instances', data),
-    onSuccess: () => {
+    onSuccess: (newInstance: any) => {
       queryClient.invalidateQueries({ queryKey: ['whatsapp-instances'] });
       toast.success('Instância criada com sucesso');
       onClose();
       setName('');
       setPhoneNumber('');
+      if (newInstance?.id && provider === 'evolution') {
+        setTimeout(() => connectMutation.mutate(newInstance.id), 500);
+      }
     },
     onError: () => toast.error('Erro ao criar instância'),
+  });
+
+  const connectMutation = useMutation({
+    mutationFn: (id: string) => api.post(`/whatsapp/instances/${id}/connect`),
   });
 
   function handleSubmit(e: React.FormEvent) {
@@ -886,11 +1063,10 @@ function ConnectInstanceModal({
       toast.error('O número de telefone é obrigatório');
       return;
     }
-    connectMutation.mutate({
+    createMutation.mutate({
       name: name.trim(),
       phoneNumber: phoneNumber.trim(),
       provider,
-      isActive: true,
     });
   }
 
@@ -964,10 +1140,10 @@ function ConnectInstanceModal({
           </button>
           <button
             type="submit"
-            disabled={connectMutation.isPending}
+            disabled={createMutation.isPending}
             className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
           >
-            {connectMutation.isPending ? (
+            {createMutation.isPending ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
               <MessageCircle className="h-4 w-4" />
@@ -981,6 +1157,7 @@ function ConnectInstanceModal({
 }
 
 function PlanosTab() {
+  const queryClient = useQueryClient();
   const { data: tenant, isLoading } = useQuery<Tenant>({
     queryKey: ['tenant'],
     queryFn: () => api.get('/tenants/current'),
@@ -1004,6 +1181,15 @@ function PlanosTab() {
   const { data: agents } = useQuery<any[]>({
     queryKey: ['ai-agents'],
     queryFn: () => api.get('/ai/agents'),
+  });
+
+  const upgradeMutation = useMutation({
+    mutationFn: (plan: string) => api.post('/tenants/upgrade', { plan }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tenant'] });
+      toast.success('Plano alterado com sucesso!');
+    },
+    onError: () => toast.error('Erro ao alterar plano'),
   });
 
   const usageStats = useMemo(() => ({
@@ -1193,7 +1379,10 @@ function PlanosTab() {
                 </ul>
                 <button
                   type="button"
-                  disabled={isCurrent}
+                  disabled={isCurrent || upgradeMutation.isPending}
+                  onClick={() => {
+                    if (!isCurrent) upgradeMutation.mutate(plan.id);
+                  }}
                   className={cn(
                     'mt-5 w-full rounded-lg py-2 text-sm font-medium transition-colors',
                     isCurrent
@@ -1201,7 +1390,13 @@ function PlanosTab() {
                       : 'bg-primary text-primary-foreground hover:bg-primary/90',
                   )}
                 >
-                  {isCurrent ? 'Plano Atual' : 'Upgrade'}
+                  {upgradeMutation.isPending && !isCurrent ? (
+                    <Loader2 className="mx-auto h-4 w-4 animate-spin" />
+                  ) : isCurrent ? (
+                    'Plano Atual'
+                  ) : (
+                    'Upgrade'
+                  )}
                 </button>
               </div>
             );
@@ -1281,6 +1476,12 @@ function APITab() {
     onError: () => toast.error('Erro ao excluir webhook'),
   });
 
+  const testWebhookMutation = useMutation({
+    mutationFn: (id: string) => api.post(`/webhooks/test/${id}`),
+    onSuccess: () => toast.success('Webhook testado com sucesso!'),
+    onError: () => toast.error('Erro ao testar webhook'),
+  });
+
   const createApiKeyMutation = useMutation({
     mutationFn: (name: string) => api.post('/api-keys', { name }),
     onSuccess: (data: any) => {
@@ -1357,6 +1558,14 @@ function APITab() {
                     </div>
                   </div>
                   <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => testWebhookMutation.mutate(wh.id)}
+                      disabled={testWebhookMutation.isPending}
+                      className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted disabled:opacity-50"
+                      title="Testar webhook"
+                    >
+                      {testWebhookMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                    </button>
                     <button
                       onClick={() => copyToClipboard(wh.url)}
                       className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted"
@@ -1558,14 +1767,17 @@ function WebhookModal({
 }) {
   const queryClient = useQueryClient();
   const isEditing = !!editingWebhook;
+  const [name, setName] = useState('');
   const [url, setUrl] = useState('');
   const [selectedEvents, setSelectedEvents] = useState<string[]>([]);
 
   useEffect(() => {
     if (editingWebhook) {
+      setName(editingWebhook.name || '');
       setUrl(editingWebhook.url || '');
       setSelectedEvents(editingWebhook.events || []);
     } else {
+      setName('');
       setUrl('');
       setSelectedEvents([]);
     }
@@ -1599,6 +1811,10 @@ function WebhookModal({
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (!name.trim()) {
+      toast.error('Nome é obrigatório');
+      return;
+    }
     if (!url.trim()) {
       toast.error('URL é obrigatória');
       return;
@@ -1607,7 +1823,7 @@ function WebhookModal({
       toast.error('Selecione pelo menos um evento');
       return;
     }
-    const payload = { url: url.trim(), events: selectedEvents };
+    const payload = { name: name.trim(), url: url.trim(), events: selectedEvents };
     if (isEditing) {
       updateMutation.mutate(payload);
     } else {
@@ -1618,6 +1834,19 @@ function WebhookModal({
   return (
     <Modal open={open} onClose={onClose} title={isEditing ? 'Editar Webhook' : 'Novo Webhook'} size="lg">
       <form onSubmit={handleSubmit} className="space-y-5">
+        <div>
+          <label className="mb-1.5 block text-sm font-medium text-foreground">
+            Nome <span className="text-destructive">*</span>
+          </label>
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Meu Webhook"
+            className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            required
+          />
+        </div>
         <div>
           <label className="mb-1.5 block text-sm font-medium text-foreground">
             URL <span className="text-destructive">*</span>
@@ -1716,9 +1945,15 @@ function SegurancaTab() {
       toast.error('Digite o código completo de 6 dígitos');
       return;
     }
+    const userData = JSON.parse(localStorage.getItem('wave_user') || '{}');
+    const userId = userData?.id;
+    if (!userId) {
+      toast.error('Usuário não encontrado. Faça login novamente.');
+      return;
+    }
     setIsEnabling(true);
     try {
-      await api.post('/auth/2fa/verify', { token: verifyCode });
+      await api.post('/auth/2fa/verify', { userId, token: verifyCode });
       toast.success('Autenticação de dois fatores ativada!');
       setStep('idle');
       setSecret('');
@@ -1930,6 +2165,262 @@ function SegurancaTab() {
   );
 }
 
+function PipedriveTab() {
+  const queryClient = useQueryClient();
+
+  const { data: integration, isLoading, refetch } = useQuery<PipedriveIntegration | null>({
+    queryKey: ['pipedrive'],
+    queryFn: () => api.get('/pipedrive'),
+  });
+
+  const disconnectMutation = useMutation({
+    mutationFn: () => api.delete('/pipedrive'),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['pipedrive'] });
+      toast.success('Pipedrive desconectado com sucesso');
+    },
+    onError: () => toast.error('Erro ao desconectar Pipedrive'),
+  });
+
+  const syncContactsMutation = useMutation({
+    mutationFn: () => api.post('/pipedrive/sync/contacts'),
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ['pipedrive'] });
+      toast.success(`Contatos sincronizados: ${data.created} criados, ${data.updated} atualizados`);
+    },
+    onError: () => toast.error('Erro ao sincronizar contatos'),
+  });
+
+  const syncLeadsMutation = useMutation({
+    mutationFn: () => api.post('/pipedrive/sync/leads'),
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ['pipedrive'] });
+      toast.success(`Leads sincronizados: ${data.created} criados, ${data.updated} atualizados`);
+    },
+    onError: () => toast.error('Erro ao sincronizar leads'),
+  });
+
+  const updateSyncMutation = useMutation({
+    mutationFn: (data: any) => api.patch('/pipedrive/sync', data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['pipedrive'] });
+      toast.success('Configurações de sincronização salvas');
+    },
+    onError: () => toast.error('Erro ao salvar configurações'),
+  });
+
+  const registerWebhookMutation = useMutation({
+    mutationFn: () => api.post('/pipedrive/register-webhook'),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['pipedrive'] });
+      toast.success('Webhook do Pipedrive registrado com sucesso!');
+    },
+    onError: () => toast.error('Erro ao registrar webhook do Pipedrive'),
+  });
+
+  async function handleConnect() {
+    try {
+      const { url } = await api.post<{ url: string }>('/pipedrive/oauth/start');
+      window.open(url, '_blank', 'width=600,height=700');
+    } catch {
+      toast.error('Erro ao iniciar conexão com Pipedrive');
+    }
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-16">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (integration) {
+    return (
+      <div className="space-y-6 max-w-2xl">
+        <div className="flex items-center gap-4 rounded-xl border border-border bg-card p-5 shadow-sm">
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-orange-500/10">
+            <BarChart3 className="h-7 w-7 text-orange-500" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <h3 className="text-base font-semibold text-foreground">Pipedrive</h3>
+              <span className="inline-flex items-center gap-1 rounded-full bg-green-500/10 px-2 py-0.5 text-[10px] font-medium text-green-600 dark:text-green-400">
+                <span className="inline-block h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse" />
+                Conectado
+              </span>
+            </div>
+            <div className="mt-1 flex items-center gap-3 text-xs text-muted-foreground">
+              <span>{integration.pipedriveName || integration.companyDomain}</span>
+              {integration.pipedriveEmail && (
+                <>
+                  <span>•</span>
+                  <span>{integration.pipedriveEmail}</span>
+                </>
+              )}
+            </div>
+            {integration.lastSyncAt && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Última sincronização: {new Date(integration.lastSyncAt).toLocaleString('pt-BR')}
+              </p>
+            )}
+          </div>
+          <button
+            onClick={() => {
+              if (confirm('Desconectar Pipedrive? A integração será removida.')) {
+                disconnectMutation.mutate();
+              }
+            }}
+            disabled={disconnectMutation.isPending}
+            className="inline-flex items-center gap-2 rounded-lg border border-destructive/30 px-3 py-2 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-50 shrink-0"
+          >
+            <Unlink className="h-3.5 w-3.5" />
+            Desconectar
+          </button>
+        </div>
+
+        <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className={cn(
+                'flex h-10 w-10 items-center justify-center rounded-lg',
+                integration.webhookId ? 'bg-green-500/10' : 'bg-yellow-500/10',
+              )}>
+                <Link2 className={cn(
+                  'h-5 w-5',
+                  integration.webhookId ? 'text-green-500' : 'text-yellow-500',
+                )} />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-foreground">Webhook do Pipedrive</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {integration.webhookId
+                    ? `Webhook ativo (ID: ${integration.webhookId}) — mudanças no Pipedrive são recebidas em tempo real`
+                    : 'Webhook não registrado — mudanças no Pipedrive não serão sincronizadas automaticamente'}
+                </p>
+              </div>
+            </div>
+            {!integration.webhookId && (
+              <button
+                onClick={() => registerWebhookMutation.mutate()}
+                disabled={registerWebhookMutation.isPending}
+                className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50 shrink-0"
+              >
+                {registerWebhookMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-4 w-4" />
+                )}
+                Registrar Webhook
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
+          <h3 className="text-sm font-semibold text-foreground mb-4">Sincronização</h3>
+          <div className="space-y-4">
+            <label className="flex items-center justify-between gap-4 rounded-lg border border-border bg-background p-4 cursor-pointer hover:bg-muted/30 transition-colors">
+              <div>
+                <p className="text-sm font-medium text-foreground">Contatos (Persons)</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Sincronizar Persons do Pipedrive com Contatos do Wave CRM</p>
+              </div>
+              <input
+                type="checkbox"
+                checked={integration.syncContacts}
+                onChange={(e) => {
+                  updateSyncMutation.mutate({ syncContacts: e.target.checked });
+                }}
+                className="h-5 w-5 rounded border-border text-primary focus:ring-ring"
+              />
+            </label>
+            <label className="flex items-center justify-between gap-4 rounded-lg border border-border bg-background p-4 cursor-pointer hover:bg-muted/30 transition-colors">
+              <div>
+                <p className="text-sm font-medium text-foreground">Leads (Deals)</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Sincronizar Deals do Pipedrive com Leads do Wave CRM</p>
+              </div>
+              <input
+                type="checkbox"
+                checked={integration.syncLeads}
+                onChange={(e) => {
+                  updateSyncMutation.mutate({ syncLeads: e.target.checked });
+                }}
+                className="h-5 w-5 rounded border-border text-primary focus:ring-ring"
+              />
+            </label>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
+          <h3 className="text-sm font-semibold text-foreground mb-4">Sincronizar Agora</h3>
+          <div className="flex flex-wrap gap-3">
+            <button
+              onClick={() => syncContactsMutation.mutate()}
+              disabled={syncContactsMutation.isPending || !integration.syncContacts}
+              className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+            >
+              {syncContactsMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4" />
+              )}
+              Sincronizar Contatos
+            </button>
+            <button
+              onClick={() => syncLeadsMutation.mutate()}
+              disabled={syncLeadsMutation.isPending || !integration.syncLeads}
+              className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+            >
+              {syncLeadsMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4" />
+              )}
+              Sincronizar Leads
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6 max-w-2xl">
+      <div className="flex flex-col items-center justify-center py-12 rounded-xl border border-dashed border-border">
+        <div className="mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-orange-500/10">
+          <BarChart3 className="h-10 w-10 text-orange-500" />
+        </div>
+        <h3 className="mb-2 text-lg font-semibold text-foreground">Conectar Pipedrive</h3>
+        <p className="mb-6 text-sm text-muted-foreground text-center max-w-md">
+          Integre seu Pipedrive para sincronizar Persons/Deals com os Contatos/Leads do Wave CRM.
+          Seus dados serão mantidos atualizados automaticamente.
+        </p>
+        <button
+          onClick={handleConnect}
+          className="inline-flex items-center gap-2 rounded-lg bg-orange-500 px-5 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-orange-600"
+        >
+          <Link2 className="h-4 w-4" />
+          Conectar com Pipedrive
+        </button>
+        <div className="mt-6 flex items-center gap-6 text-xs text-muted-foreground">
+          <div className="flex items-center gap-1.5">
+            <Check className="h-3.5 w-3.5 text-green-500" />
+            Contatos
+          </div>
+          <div className="flex items-center gap-1.5">
+            <Check className="h-3.5 w-3.5 text-green-500" />
+            Leads
+          </div>
+          <div className="flex items-center gap-1.5">
+            <Check className="h-3.5 w-3.5 text-green-500" />
+            Sincronização bidirecional
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function usagePercent(used: number, limit: number): number {
   if (limit <= 0) return 0;
   return Math.min((used / limit) * 100, 100);
@@ -1943,6 +2434,20 @@ function getUsageColor(percent: number): string {
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<TabId>('geral');
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('pipedrive') === 'connected') {
+      setActiveTab('pipedrive');
+      toast.success('Pipedrive conectado com sucesso!');
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+    if (params.get('pipedrive') === 'error') {
+      setActiveTab('pipedrive');
+      toast.error('Erro ao conectar Pipedrive. Tente novamente.');
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }, []);
 
   return (
     <div className="space-y-6">
@@ -1978,6 +2483,7 @@ export default function SettingsPage() {
         {activeTab === 'geral' && <GeralTab />}
         {activeTab === 'equipe' && <EquipeTab />}
         {activeTab === 'whatsapp' && <WhatsAppTab />}
+        {activeTab === 'pipedrive' && <PipedriveTab />}
         {activeTab === 'seguranca' && <SegurancaTab />}
         {activeTab === 'planos' && <PlanosTab />}
         {activeTab === 'api' && <APITab />}

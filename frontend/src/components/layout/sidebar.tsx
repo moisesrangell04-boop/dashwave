@@ -20,6 +20,7 @@ import {
   ChevronRight,
   LogOut,
   User,
+  Building2,
 } from 'lucide-react';
 
 interface NavItem {
@@ -34,6 +35,7 @@ const navItems: NavItem[] = [
   { label: 'Contatos', href: '/dashboard/contacts', icon: Users },
   { label: 'Leads', href: '/dashboard/leads', icon: Target },
   { label: 'Pipelines', href: '/dashboard/pipelines', icon: Kanban },
+  { label: 'Workspaces', href: '/dashboard/workspaces', icon: Building2 },
   { label: 'Relatórios', href: '/dashboard/reports', icon: BarChart3 },
   { label: 'WhatsApp', href: '/dashboard/whatsapp', icon: Smartphone },
   { label: 'Agentes IA', href: '/dashboard/agents', icon: Bot },

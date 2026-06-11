@@ -10,10 +10,21 @@ ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 
 echo ">>> Configurando SSL para $DOMAIN"
 
+# Domínios com mais de 2 labels (ex: dashboard.wavecrm.com.br) são subdomínios:
+# não faz sentido (nem existe DNS para) "www.dashboard.wavecrm.com.br".
+LABEL_COUNT=$(echo "$DOMAIN" | awk -F. '{print NF}')
+if [ "$LABEL_COUNT" -le 2 ]; then
+  SERVER_NAMES="$DOMAIN www.$DOMAIN"
+  CERTBOT_DOMAINS=(-d "$DOMAIN" -d "www.$DOMAIN")
+else
+  SERVER_NAMES="$DOMAIN"
+  CERTBOT_DOMAINS=(-d "$DOMAIN")
+fi
+
 # Atualiza o nginx.conf com o domínio correto
 NGINX_CONF="$ROOT_DIR/infra/nginx/sites/wave-crm.conf"
-sed -i "s/wavecrm.com.br/$DOMAIN/g" "$NGINX_CONF"
-echo ">>> nginx.conf atualizado para $DOMAIN"
+sed -i "s/wavecrm.com.br www.wavecrm.com.br/$SERVER_NAMES/g; s/wavecrm.com.br/$DOMAIN/g" "$NGINX_CONF"
+echo ">>> nginx.conf atualizado para $SERVER_NAMES"
 
 # Sobe nginx temporário (HTTP only) para o desafio certbot
 docker run --rm \
@@ -21,7 +32,7 @@ docker run --rm \
   -v "/var/www/certbot:/var/www/certbot" \
   -p 80:80 \
   nginx:alpine sh -c "
-    echo 'server { listen 80; server_name $DOMAIN www.$DOMAIN; location /.well-known/acme-challenge/ { root /var/www/certbot; } }' > /etc/nginx/conf.d/certbot.conf
+    echo 'server { listen 80; server_name $SERVER_NAMES; location /.well-known/acme-challenge/ { root /var/www/certbot; } }' > /etc/nginx/conf.d/certbot.conf
     nginx -g 'daemon off;' &
     sleep 3
     echo 'Nginx pronto para desafio certbot'
@@ -41,12 +52,9 @@ docker run --rm \
   --email "$EMAIL" \
   --agree-tos \
   --no-eff-email \
-  -d "$DOMAIN" -d "www.$DOMAIN"
+  "${CERTBOT_DOMAINS[@]}"
 
 kill $NGINX_PID 2>/dev/null || true
-
-# Atualiza o caminho do certificado no nginx.conf
-sed -i "s|/etc/letsencrypt/live/wavecrm.com.br|/etc/letsencrypt/live/$DOMAIN|g" "$NGINX_CONF"
 
 echo ""
 echo "=== SSL configurado para $DOMAIN ==="

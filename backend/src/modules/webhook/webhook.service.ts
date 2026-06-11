@@ -8,6 +8,8 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '@infra/database/prisma/prisma.service';
 import { AutomationService } from '@modules/automation/automation.service';
 import { AiService } from '@modules/ai/ai.service';
+import { WhatsAppService } from '@modules/whatsapp/whatsapp.service';
+import { PipedriveService } from '@modules/pipedrive/pipedrive.service';
 import { ConversationGateway } from '../gateway/conversation.gateway';
 import { CreateWebhookDto } from './dto/create-webhook.dto';
 
@@ -21,7 +23,24 @@ export class WebhookService {
     @Optional() private readonly gateway: ConversationGateway,
     @Optional() private readonly automationService: AutomationService,
     @Optional() private readonly aiService: AiService,
+    @Optional() private readonly whatsappService: WhatsAppService,
+    @Optional() private readonly pipedriveService: PipedriveService,
   ) {}
+
+  async handlePipedriveWebhook(tenantId: string, workspaceId: string, payload: any) {
+    if (!this.pipedriveService) return { status: 'ok' };
+
+    const result = await this.pipedriveService.processDealWebhook(tenantId, workspaceId, payload);
+    if (!result) return { status: 'ok' };
+
+    this.logger.log(
+      `Pipedrive deal ${result.pipedriveDealId} updated (stage ${result.previousStageId} -> ${result.stageId})`,
+    );
+
+    await this.triggerAutomations(tenantId, workspaceId, 'pipedrive.deal_updated', result);
+
+    return { status: 'ok' };
+  }
 
   async handleEvolutionWebhook(instanceName: string, payload: any) {
     this.logger.log(`Evolution webhook received for instance ${instanceName}`);
@@ -565,6 +584,34 @@ export class WebhookService {
       });
 
       this.gateway?.emitNewMessage(tenantId, conversation.id, reply);
+
+      if (this.whatsappService) {
+        const contact = await this.prisma.contact.findUnique({
+          where: { id: conversation.contactId },
+          select: { phone: true },
+        });
+
+        if (contact?.phone) {
+          try {
+            await this.whatsappService.sendMessage(tenantId, workspaceId, conversation.whatsappInstanceId, {
+              to: contact.phone,
+              message: responseText,
+              type: 'text',
+            });
+            await this.prisma.message.update({
+              where: { id: reply.id },
+              data: { status: 'sent', sentAt: new Date() },
+            });
+          } catch (sendErr) {
+            this.logger.error(`Failed to send AI reply via WhatsApp: ${sendErr.message}`);
+            await this.prisma.message.update({
+              where: { id: reply.id },
+              data: { status: 'failed' },
+            });
+          }
+        }
+      }
+
       this.logger.log(`AI agent responded in conversation ${conversation.id}`);
     } catch (err) {
       this.logger.error(`Failed to trigger AI response: ${err.message}`);

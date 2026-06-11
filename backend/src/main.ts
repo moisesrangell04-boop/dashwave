@@ -35,6 +35,10 @@ async function bootstrap() {
 
   const app = await NestFactory.create(AppModule, { bufferLogs: true, rawBody: true });
 
+  // Trust the first proxy hop (nginx) so req.ip reflects the real client IP.
+  // Required for per-client rate limiting (ThrottlerGuard) to work correctly.
+  app.getHttpAdapter().getInstance().set('trust proxy', 1);
+
   app.useLogger(app.get(Logger));
   app.useWebSocketAdapter(new IoAdapter(app));
   app.use(helmet());

@@ -60,7 +60,9 @@ import { JwtStrategy } from './common/strategies/jwt.strategy';
       throttlers: [
         {
           ttl: 60000,
-          limit: 100,
+          // Generous default per-IP limit; sensitive auth routes override
+          // this with stricter @Throttle() limits.
+          limit: 300,
         },
       ],
     }),
@@ -101,6 +103,10 @@ import { JwtStrategy } from './common/strategies/jwt.strategy';
   providers: [
     PrismaService,
     JwtStrategy,
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    },
     {
       provide: APP_GUARD,
       useClass: JwtAuthGuard,

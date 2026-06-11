@@ -198,12 +198,18 @@ export class AuthService {
         throw new UnauthorizedException('User not found or inactive');
       }
 
-      return this.generateTokens({
+      const tokens = await this.generateTokens({
         sub: user.id,
         email: user.email,
         tenantId: user.tenantId,
         role: user.role,
       });
+
+      // Refresh token rotation: invalidate the token that was just used so a
+      // stolen refresh token cannot keep being reused after a legitimate refresh.
+      await this.blacklistToken(refreshToken);
+
+      return tokens;
     } catch {
       throw new UnauthorizedException('Invalid or expired refresh token');
     }

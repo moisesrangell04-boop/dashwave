@@ -20,6 +20,7 @@ import {
   ApiExcludeEndpoint,
 } from '@nestjs/swagger';
 import { ConfigService } from '@nestjs/config';
+import { SkipThrottle } from '@nestjs/throttler';
 import * as crypto from 'crypto';
 import { WebhookService } from './webhook.service';
 import { PipedriveService } from '@modules/pipedrive/pipedrive.service';
@@ -38,6 +39,7 @@ export class WebhookController {
   ) {}
 
   @Public()
+  @SkipThrottle()
   @Post('pipedrive/:tenantId/:workspaceId')
   @ApiExcludeEndpoint()
   @ApiOperation({ summary: 'Pipedrive webhook receiver (deal updated)' })
@@ -73,6 +75,7 @@ export class WebhookController {
   }
 
   @Public()
+  @SkipThrottle()
   @Post('evolution/:instanceName')
   @ApiExcludeEndpoint()
   @ApiOperation({ summary: 'Evolution API webhook receiver' })
@@ -90,6 +93,7 @@ export class WebhookController {
   }
 
   @Public()
+  @SkipThrottle()
   @Post('meta')
   @ApiExcludeEndpoint()
   @ApiOperation({ summary: 'Meta Cloud API webhook receiver' })

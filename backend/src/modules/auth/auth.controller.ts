@@ -86,6 +86,7 @@ export class AuthController {
 
   @Public()
   @Post('2fa/verify')
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
   @ApiOperation({ summary: 'Verify and enable 2FA with TOTP code' })
   @ApiBody({
     schema: {
@@ -134,6 +135,7 @@ export class AuthController {
 
   @Public()
   @Post('reset-password')
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
   @ApiOperation({ summary: 'Reset password with token' })
   @ApiResponse({ status: 200, description: 'Password reset successfully' })
   @ApiResponse({ status: 400, description: 'Invalid or expired token' })

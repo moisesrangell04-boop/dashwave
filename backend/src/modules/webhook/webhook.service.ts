@@ -72,28 +72,19 @@ export class WebhookService {
   async handleMetaWebhook(payload: any) {
     this.logger.log('Meta webhook received');
 
-    const entry = payload?.entry?.[0];
-    const change = entry?.changes?.[0];
-    const value = change?.value;
+    for (const entry of payload?.entry ?? []) {
+      for (const change of entry?.changes ?? []) {
+        const value = change?.value;
+        if (!value?.metadata) continue;
 
-    if (!value) {
-      return { status: 'ok' };
-    }
+        for (const msg of value.messages ?? []) {
+          await this.processMetaMessage(value.metadata, msg);
+        }
 
-    const messages = value.messages ?? [];
-    const statuses = value.statuses ?? [];
-    const metadata = value.metadata;
-
-    if (!metadata) {
-      return { status: 'ok' };
-    }
-
-    for (const msg of messages) {
-      await this.processMetaMessage(metadata, msg);
-    }
-
-    for (const status of statuses) {
-      await this.processMetaStatus(metadata, status);
+        for (const status of value.statuses ?? []) {
+          await this.processMetaStatus(value.metadata, status);
+        }
+      }
     }
 
     return { status: 'ok' };
@@ -172,6 +163,16 @@ export class WebhookService {
 
     if (!phone) {
       this.logger.warn('No phone number in Evolution message');
+      return { status: 'ok' };
+    }
+
+    if (key.fromMe) {
+      this.logger.log('Ignoring Evolution echo of outbound message');
+      return { status: 'ok' };
+    }
+
+    if (key.id && (await this.messageExists(instance.tenantId, key.id))) {
+      this.logger.log(`Duplicate Evolution message ${key.id}, skipping`);
       return { status: 'ok' };
     }
 
@@ -256,6 +257,11 @@ export class WebhookService {
 
     if (!instance) {
       this.logger.warn(`No instance found for Meta phone ID ${metadata.phone_number_id}`);
+      return { status: 'ok' };
+    }
+
+    if (msg.id && (await this.messageExists(instance.tenantId, msg.id))) {
+      this.logger.log(`Duplicate Meta message ${msg.id}, skipping`);
       return { status: 'ok' };
     }
 
@@ -422,6 +428,14 @@ export class WebhookService {
     if (msg.type === 'button') return 'button';
     if (msg.type === 'interactive') return 'interactive';
     return 'text';
+  }
+
+  private async messageExists(tenantId: string, whatsappMessageId: string): Promise<boolean> {
+    const existing = await this.prisma.message.findFirst({
+      where: { tenantId, whatsappMessageId },
+      select: { id: true },
+    });
+    return !!existing;
   }
 
   private async findOrCreateContact(

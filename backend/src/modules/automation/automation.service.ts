@@ -306,7 +306,7 @@ export class AutomationService {
         workspaceId: automation.workspaceId,
         automationId: automation.id,
         eventType: (automation.trigger as any)?.type || 'unknown',
-        payload: automation.trigger as any,
+        payload: payload as any,
         actions: actionResults as any,
         success: !hasError,
         errorMessage: hasError

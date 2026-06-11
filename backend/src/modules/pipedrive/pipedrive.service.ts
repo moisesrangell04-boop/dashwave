@@ -38,8 +38,32 @@ export class PipedriveService {
     });
   }
 
+  private signState(payload: { tenantId: string; workspaceId: string }): string {
+    const data = Buffer.from(JSON.stringify(payload)).toString('base64url');
+    const secret = this.configService.get<string>('jwt.secret');
+    const sig = crypto.createHmac('sha256', secret).update(data).digest('base64url');
+    return `${data}.${sig}`;
+  }
+
+  private verifyState(state: string): { tenantId: string; workspaceId: string } {
+    const [data, sig] = state.split('.');
+    if (!data || !sig) throw new BadRequestException('Invalid state parameter');
+
+    const secret = this.configService.get<string>('jwt.secret');
+    const expectedSig = crypto.createHmac('sha256', secret).update(data).digest('base64url');
+    if (!this.timingSafeEquals(sig, expectedSig)) {
+      throw new BadRequestException('Invalid state parameter');
+    }
+
+    try {
+      return JSON.parse(Buffer.from(data, 'base64url').toString('utf-8'));
+    } catch {
+      throw new BadRequestException('Invalid state parameter');
+    }
+  }
+
   getOAuthUrl(tenantId: string, workspaceId: string, companyDomain?: string) {
-    const state = Buffer.from(JSON.stringify({ tenantId, workspaceId })).toString('base64');
+    const state = this.signState({ tenantId, workspaceId });
     const url = new URL('https://oauth.pipedrive.com/oauth/authorize');
 
     url.searchParams.set('client_id', this.clientId);
@@ -54,14 +78,7 @@ export class PipedriveService {
   }
 
   async handleCallback(code: string, state: string) {
-    let payload: { tenantId: string; workspaceId: string };
-    try {
-      payload = JSON.parse(Buffer.from(state, 'base64').toString('utf-8'));
-    } catch {
-      throw new BadRequestException('Invalid state parameter');
-    }
-
-    const { tenantId, workspaceId } = payload;
+    const { tenantId, workspaceId } = this.verifyState(state);
 
     const tokenResponse = await fetch('https://oauth.pipedrive.com/oauth/token', {
       method: 'POST',
@@ -214,8 +231,19 @@ export class PipedriveService {
   async verifyWebhookAuth(tenantId: string, workspaceId: string, authUser?: string, authPass?: string) {
     const integration = await this.getIntegration(tenantId, workspaceId);
     if (!integration?.webhookAuthUser || !integration?.webhookAuthPass) return false;
+    if (!authUser || !authPass) return false;
 
-    return authUser === integration.webhookAuthUser && authPass === integration.webhookAuthPass;
+    return (
+      this.timingSafeEquals(authUser, integration.webhookAuthUser) &&
+      this.timingSafeEquals(authPass, integration.webhookAuthPass)
+    );
+  }
+
+  private timingSafeEquals(a: string, b: string): boolean {
+    const bufA = Buffer.from(a);
+    const bufB = Buffer.from(b);
+    if (bufA.length !== bufB.length) return false;
+    return crypto.timingSafeEqual(bufA, bufB);
   }
 
   async updateSyncSettings(tenantId: string, workspaceId: string, dto: UpdateSyncDto) {

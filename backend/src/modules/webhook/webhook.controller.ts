@@ -67,8 +67,9 @@ export class WebhookController {
     if (!header?.startsWith('Basic ')) return null;
 
     const decoded = Buffer.from(header.slice(6), 'base64').toString('utf-8');
-    const [user, pass] = decoded.split(':');
-    return { user, pass };
+    const sep = decoded.indexOf(':');
+    if (sep === -1) return null;
+    return { user: decoded.slice(0, sep), pass: decoded.slice(sep + 1) };
   }
 
   @Public()
@@ -103,7 +104,12 @@ export class WebhookController {
         .createHmac('sha256', appSecret)
         .update(JSON.stringify(payload))
         .digest('hex');
-      if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {
+      const sigBuf = Buffer.from(signature);
+      const expectedBuf = Buffer.from(expected);
+      if (
+        sigBuf.length !== expectedBuf.length ||
+        !crypto.timingSafeEqual(sigBuf, expectedBuf)
+      ) {
         throw new UnauthorizedException('Invalid webhook signature');
       }
     }

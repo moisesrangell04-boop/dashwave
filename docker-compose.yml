@@ -104,7 +104,7 @@ services:
       SERVER_URL: http://localhost:8080
       DEL_INSTANCE: false
       DATABASE_ENABLED: true
-      DATABASE_CONNECTION_URI: postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/wave_crm
+      DATABASE_CONNECTION_URI: postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/wave_crm_evolution
       DATABASE_PROVIDER: postgresql
       DATABASE_TABLE_NAME: evolution_instances
       REDIS_ENABLED: true

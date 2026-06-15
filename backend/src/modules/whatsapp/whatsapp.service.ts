@@ -135,7 +135,7 @@ export class WhatsAppService {
     const verifyToken = this.configService.get<string>('whatsapp.meta.webhookVerifyToken');
 
     return {
-      webhookUrl: `${backendUrl}/api/webhooks/meta`,
+      webhookUrl: `${backendUrl}/api/v1/webhooks/meta`,
       verifyToken,
     };
   }

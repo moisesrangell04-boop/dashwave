@@ -9,8 +9,10 @@ import {
   Query,
   UseGuards,
   Headers,
+  Res,
   UnauthorizedException,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import {
   ApiTags,
   ApiOperation,
@@ -131,9 +133,14 @@ export class WebhookController {
     @Query('hub.mode') mode: string,
     @Query('hub.verify_token') token: string,
     @Query('hub.challenge') challenge: string,
+    @Res() res: Response,
   ) {
     const result = this.webhookService.verifyMetaWebhook(mode, token, challenge);
-    return result;
+    if (result === null) {
+      res.status(403).send('Forbidden');
+      return;
+    }
+    res.status(200).send(result);
   }
 
   @Post('config')

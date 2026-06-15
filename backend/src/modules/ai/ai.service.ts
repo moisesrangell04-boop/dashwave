@@ -369,7 +369,7 @@ export class AiService {
     temperature: number,
     maxTokens: number,
   ): Promise<string> {
-    const apiKey = this.configService.get<string>('AI_OPENAI_API_KEY');
+    const apiKey = this.configService.get<string>('ai.openai.apiKey');
     if (!apiKey) throw new Error('OpenAI API key not configured');
 
     const messages = [
@@ -403,7 +403,7 @@ export class AiService {
     temperature: number,
     maxTokens: number,
   ): Promise<string> {
-    const apiKey = this.configService.get<string>('AI_ANTHROPIC_API_KEY');
+    const apiKey = this.configService.get<string>('ai.anthropic.apiKey');
     if (!apiKey) throw new Error('Anthropic API key not configured');
 
     const messages = [
@@ -443,7 +443,7 @@ export class AiService {
     temperature: number,
     maxTokens: number,
   ): Promise<string> {
-    const apiKey = this.configService.get<string>('AI_GEMINI_API_KEY');
+    const apiKey = this.configService.get<string>('ai.gemini.apiKey');
     if (!apiKey) throw new Error('Gemini API key not configured');
 
     const contents = [

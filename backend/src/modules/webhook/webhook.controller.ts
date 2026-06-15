@@ -10,9 +10,11 @@ import {
   UseGuards,
   Headers,
   Res,
+  Req,
   UnauthorizedException,
 } from '@nestjs/common';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
+import type { RawBodyRequest } from '@nestjs/common';
 import {
   ApiTags,
   ApiOperation,
@@ -103,12 +105,13 @@ export class WebhookController {
   receiveMeta(
     @Headers('x-hub-signature-256') signature: string,
     @Body() payload: any,
+    @Req() req: RawBodyRequest<Request>,
   ) {
     const appSecret = this.configService.get<string>('whatsapp.meta.appSecret');
     if (appSecret && signature) {
       const expected = 'sha256=' + crypto
         .createHmac('sha256', appSecret)
-        .update(JSON.stringify(payload))
+        .update(req.rawBody)
         .digest('hex');
       const sigBuf = Buffer.from(signature);
       const expectedBuf = Buffer.from(expected);

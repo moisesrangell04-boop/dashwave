@@ -486,7 +486,7 @@ export default function WhatsAppPage() {
                 {instance.provider === 'meta_cloud' && (
                   <button
                     onClick={() => setMetaConfigInstance(instance)}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3.5 py-2 text-xs font-medium text-blue-600 transition-colors hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-400"
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3.5 py-2 text-xs font-medium text-blue-600 transition-colors hover:bg-blue-100 dark:border-blue-700 dark:bg-blue-900 dark:text-blue-300 dark:hover:bg-blue-800"
                     title="Configurar Meta Cloud"
                   >
                     <Settings className="h-3.5 w-3.5" />

@@ -1,4 +1,4 @@
-import { IsString, IsOptional, ValidateNested, IsObject } from 'class-validator';
+import { IsString, IsOptional, IsBoolean, ValidateNested, IsObject } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { AgentConfig, AgentTriggers } from './create-agent.dto';
@@ -13,6 +13,11 @@ export class UpdateAgentDto {
   @IsOptional()
   @IsString()
   description?: string;
+
+  @ApiPropertyOptional({ example: true, description: 'Whether the agent is active' })
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
 
   @ApiPropertyOptional({ description: 'AI provider configuration (partial)' })
   @IsOptional()

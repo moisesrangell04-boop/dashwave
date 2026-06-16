@@ -104,6 +104,7 @@ export class AiService {
 
     if (dto.name !== undefined) data.name = dto.name;
     if (dto.description !== undefined) data.description = dto.description;
+    if (dto.isActive !== undefined) data.isActive = dto.isActive;
     if (dto.config !== undefined) {
       const existingConfig = typeof agent.config === 'string' ? JSON.parse(agent.config) : agent.config;
       data.config = { ...existingConfig, ...dto.config };

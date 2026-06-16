@@ -493,6 +493,11 @@ export class WebhookService {
       return conversation;
     }
 
+    const activeAgent = await this.prisma.aIAgent.findFirst({
+      where: { tenantId, isActive: true },
+      select: { id: true },
+    });
+
     conversation = await this.prisma.conversation.create({
       data: {
         tenantId,
@@ -500,6 +505,7 @@ export class WebhookService {
         contactId,
         whatsappInstanceId: instanceId,
         lastActivityAt: new Date(),
+        ...(activeAgent && { assignedAgentId: activeAgent.id }),
       },
     });
 

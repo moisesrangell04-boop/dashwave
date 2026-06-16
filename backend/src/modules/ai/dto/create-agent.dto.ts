@@ -25,9 +25,10 @@ export enum TriggerType {
 }
 
 export class AgentConfig {
-  @ApiProperty({ enum: AIProvider, description: 'AI provider' })
+  @ApiPropertyOptional({ enum: AIProvider, description: 'AI provider' })
+  @IsOptional()
   @IsEnum(AIProvider)
-  provider: AIProvider;
+  provider?: AIProvider;
 
   @ApiPropertyOptional({ example: 'gpt-4o', description: 'Model name' })
   @IsOptional()

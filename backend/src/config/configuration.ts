@@ -53,7 +53,7 @@ export default () => ({
   pipedrive: {
     clientId: process.env.PIPEDRIVE_CLIENT_ID || '',
     clientSecret: process.env.PIPEDRIVE_CLIENT_SECRET || '',
-    redirectUri: process.env.PIPEDRIVE_REDIRECT_URI || 'http://localhost:4000/api/pipedrive/oauth/callback',
+    redirectUri: process.env.PIPEDRIVE_REDIRECT_URI || 'http://localhost:4000/api/v1/pipedrive/oauth/callback',
   },
   throttle: {
     ttl: parseInt(process.env.THROTTLE_TTL || '60', 10),

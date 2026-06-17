@@ -178,7 +178,7 @@ export class PipedriveService {
     try {
       const token = await this.getValidToken(integration);
       const backendUrl = this.configService.get<string>('backendUrl');
-      const baseUrl = `${backendUrl}/api/webhooks/pipedrive/${tenantId}/${workspaceId}`;
+      const baseUrl = `${backendUrl}/api/v1/webhooks/pipedrive/${tenantId}/${workspaceId}`;
 
       const authUser = integration.webhookAuthUser || crypto.randomBytes(8).toString('hex');
       const authPass = integration.webhookAuthPass || crypto.randomBytes(16).toString('hex');

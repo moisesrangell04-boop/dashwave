@@ -792,12 +792,38 @@ export class PipedriveService {
     });
 
     if (existing) {
+      const existingStageId = (existing.metadata as any)?.pipedriveStageId;
+      const needPipelineUpdate = (existing.metadata as any)?.pipedrivePipelineId !== deal.pipeline_id
+        || existingStageId !== deal.stage_id;
+
+      let pipelineId = existing.pipelineId;
+      let stageId = existing.stageId;
+
+      if (needPipelineUpdate) {
+        const pipelines = await this.prisma.pipeline.findMany({
+          where: { tenantId, workspaceId },
+        });
+        const matchedPipeline = pipelines.find((p) => {
+          const stages = (p.stages as any[]) || [];
+          return stages.some((s: any) => s.pipedriveId === deal.stage_id);
+        });
+        const pipeline = matchedPipeline || pipelines.find((p) => p.isDefault);
+        if (pipeline) {
+          pipelineId = pipeline.id;
+          const stages = (pipeline.stages as any[]) || [];
+          const matchedStage = stages.find((s: any) => s.pipedriveId === deal.stage_id);
+          stageId = (matchedStage || stages.find((s: any) => s.isDefault) || stages[0])?.id || stageId;
+        }
+      }
+
       return this.prisma.lead.update({
         where: { id: existing.id },
         data: {
           title: deal.title || existing.title,
           value: deal.value ? Number(deal.value) : existing.value,
           contactId: contact.id,
+          pipelineId,
+          stageId,
           lastActivityAt: new Date(),
           metadata: {
             ...(existing.metadata as any),
@@ -822,23 +848,30 @@ export class PipedriveService {
       });
     }
 
-    const defaultPipeline = await this.prisma.pipeline.findFirst({
-      where: { tenantId, workspaceId, isDefault: true },
+    const pipelines = await this.prisma.pipeline.findMany({
+      where: { tenantId, workspaceId },
     });
 
-    if (!defaultPipeline) return null;
+    const matchedPipeline = pipelines.find((p) => {
+      const stages = (p.stages as any[]) || [];
+      return stages.some((s: any) => s.pipedriveId === deal.stage_id);
+    });
 
-    const stages = defaultPipeline.stages as any[];
-    const defaultStage = stages.find((s: any) => s.isDefault) || stages[0];
+    const pipeline = matchedPipeline || pipelines.find((p) => p.isDefault);
+    if (!pipeline) return null;
 
-    if (!defaultStage) return null;
+    const stages = (pipeline.stages as any[]) || [];
+    const matchedStage = stages.find((s: any) => s.pipedriveId === deal.stage_id);
+    const stage = matchedStage || stages.find((s: any) => s.isDefault) || stages[0];
+
+    if (!stage) return null;
 
     return this.prisma.lead.create({
       data: {
         tenantId,
         workspaceId,
-        pipelineId: defaultPipeline.id,
-        stageId: defaultStage.id,
+        pipelineId: pipeline.id,
+        stageId: stage.id,
         contactId: contact.id,
         title: deal.title || 'Untitled Deal',
         value: deal.value ? Number(deal.value) : undefined,

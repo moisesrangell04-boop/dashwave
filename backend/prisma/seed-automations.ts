@@ -22,7 +22,6 @@ async function getOrCreateWorkspace(tenantId: string) {
       id: '80e20129-90a6-44e5-88c4-9c63f91279a3',
       tenantId,
       name: 'Principal',
-      slug: 'principal',
     },
   });
 }

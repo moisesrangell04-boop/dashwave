@@ -19,6 +19,7 @@ export class MessageFlowService {
     conversationId: string,
     contactId: string,
     assignedUserName: string,
+    flowName?: string,
   ) {
     const contact = await this.prisma.contact.findUnique({
       where: { id: contactId },
@@ -115,6 +116,73 @@ export class MessageFlowService {
       'Se cancelado, a quanto tempo?\n\n' +
       'Caso esteja buscando um plano de saúde para o mínimo duas pessoas, ' +
       'tenho uma informação importante 👇'
+    );
+  }
+
+  async sendTrocaFunilFlow(
+    tenantId: string,
+    workspaceId: string,
+    conversationId: string,
+    contactId: string,
+    product: string,
+  ) {
+    const messages: Record<string, string> = {
+      SAUDE:
+        'Ola! Recebemos sua solicitacao de cotacao e estamos transferindo seu atendimento para um de nossos especialistas em planos de saude. Em breve ele entrara em contato.',
+      VIDA:
+        'Ola! Recebemos sua solicitacao e estamos transferindo seu atendimento para um especialista em seguros de vida.',
+      ODONTO:
+        'Ola! Recebemos sua solicitacao e estamos transferindo seu atendimento para um especialista em planos odontologicos.',
+    };
+
+    const content = messages[product] || messages['SAUDE'];
+    await this.sendToConversation(tenantId, workspaceId, conversationId, contactId, content);
+  }
+
+  async sendRetiradoSequenciaFlow(
+    tenantId: string,
+    workspaceId: string,
+    conversationId: string,
+    contactId: string,
+  ) {
+    const content =
+      'Seu atendimento esta avancando! Voce foi removido da sequencia automatica e agora um de nossos corretores vai acompanhar seu caso pessoalmente.';
+    await this.sendToConversation(tenantId, workspaceId, conversationId, contactId, content);
+  }
+
+  async sendPerdidoFlow(
+    tenantId: string,
+    workspaceId: string,
+    conversationId: string,
+    contactId: string,
+  ) {
+    const content =
+      'Ola! Identificamos que seu negocio foi perdido. Se tiver interesse em retomar futuramente, estamos a disposicao. Obrigado pelo contato!';
+    await this.sendToConversation(tenantId, workspaceId, conversationId, contactId, content);
+  }
+
+  private async sendToConversation(
+    tenantId: string,
+    workspaceId: string,
+    conversationId: string,
+    contactId: string,
+    content: string,
+  ) {
+    const contact = await this.prisma.contact.findUnique({
+      where: { id: contactId },
+    });
+
+    if (!contact?.phone) return;
+
+    const instance = await this.prisma.whatsAppInstance.findFirst({
+      where: { tenantId, workspaceId, isActive: true },
+    });
+
+    if (!instance) return;
+
+    await this.sendAndRecordMessage(
+      tenantId, workspaceId, conversationId, contactId,
+      instance, contact.phone, content,
     );
   }
 

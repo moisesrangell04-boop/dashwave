@@ -624,11 +624,25 @@ export class PipedriveService {
       // non-critical, continue without custom fields
     }
 
+    const contactPhones: string[] = [];
+    if (person?.phone) {
+      for (const entry of person.phone) {
+        if (entry?.value) {
+          const cleaned = entry.value.replace(/[^0-9]/g, '').replace(/\0/g, '');
+          if (cleaned) contactPhones.push(cleaned);
+        }
+      }
+    }
+    if (contact?.phone && !contactPhones.includes(contact.phone)) {
+      contactPhones.unshift(contact.phone);
+    }
+
     return {
-      action: body?.meta?.action, // 'added' | 'updated' | 'merged' | 'deleted'
+      action: body?.meta?.action,
       leadId: lead?.id,
       contactId: contact?.id,
       contactPhone: contact?.phone,
+      contactPhones,
       contactName: contact?.name,
       pipedriveDealId: deal.id,
       pipelineId: deal.pipeline_id,
@@ -856,6 +870,33 @@ export class PipedriveService {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ stage_id: stageId }),
+    });
+
+    if (!response.ok) {
+      const err = await response.text();
+      throw new BadRequestException(`Pipedrive API error: ${err}`);
+    }
+
+    return (await response.json()).data;
+  }
+
+  async createNote(tenantId: string, workspaceId: string, dealId: number, content: string) {
+    const integration = await this.getIntegration(tenantId, workspaceId);
+    if (!integration) throw new NotFoundException('Pipedrive not connected');
+
+    const token = await this.getValidToken(integration);
+
+    const response = await fetch(`${this.apiBase}/notes`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        deal_id: dealId,
+        content,
+        pin_on_deal: true,
+      }),
     });
 
     if (!response.ok) {

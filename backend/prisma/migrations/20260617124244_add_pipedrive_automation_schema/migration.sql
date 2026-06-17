@@ -1,10 +1,22 @@
--- AlterTable
-ALTER TABLE "AutomationLog" ADD COLUMN     "pipelineRule" TEXT,
-ADD COLUMN     "source" TEXT NOT NULL DEFAULT 'engine',
-ALTER COLUMN "automationId" DROP NOT NULL;
+-- AlterTable (safe: columns may already exist from db push)
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='AutomationLog' AND column_name='pipelineRule') THEN
+    ALTER TABLE "AutomationLog" ADD COLUMN "pipelineRule" TEXT;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='AutomationLog' AND column_name='source') THEN
+    ALTER TABLE "AutomationLog" ADD COLUMN "source" TEXT NOT NULL DEFAULT 'engine';
+  END IF;
+END $$;
 
--- AlterTable
-ALTER TABLE "PipedriveIntegration" ADD COLUMN     "webhookIds" JSONB;
+ALTER TABLE "AutomationLog" ALTER COLUMN "automationId" DROP NOT NULL;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='PipedriveIntegration' AND column_name='webhookIds') THEN
+    ALTER TABLE "PipedriveIntegration" ADD COLUMN "webhookIds" JSONB;
+  END IF;
+END $$;
 
 -- CreateIndex
 CREATE INDEX IF NOT EXISTS "ApiKey_key_idx" ON "ApiKey"("key");

@@ -7,10 +7,18 @@ ALTER COLUMN "automationId" DROP NOT NULL;
 ALTER TABLE "PipedriveIntegration" ADD COLUMN     "webhookIds" JSONB;
 
 -- CreateIndex
-CREATE INDEX "ApiKey_key_idx" ON "ApiKey"("key");
+CREATE INDEX IF NOT EXISTS "ApiKey_key_idx" ON "ApiKey"("key");
 
 -- CreateIndex
-CREATE INDEX "AutomationLog_source_executedAt_idx" ON "AutomationLog"("source", "executedAt");
+CREATE INDEX IF NOT EXISTS "AutomationLog_source_executedAt_idx" ON "AutomationLog"("source", "executedAt");
 
 -- AddForeignKey
-ALTER TABLE "AutomationLog" ADD CONSTRAINT "AutomationLog_automationId_fkey" FOREIGN KEY ("automationId") REFERENCES "Automation"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'AutomationLog_automationId_fkey'
+  ) THEN
+    ALTER TABLE "AutomationLog" ADD CONSTRAINT "AutomationLog_automationId_fkey"
+      FOREIGN KEY ("automationId") REFERENCES "Automation"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+  END IF;
+END $$;

@@ -2,11 +2,38 @@ import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
-const TENANT_ID = 'c2d7e97e-462d-4c23-a4c0-771bab683de3';
-const WORKSPACE_ID = '80e20129-90a6-44e5-88c4-9c63f91279a3';
+async function getOrCreateTenant() {
+  const existing = await prisma.tenant.findFirst();
+  if (existing) return existing;
+  return prisma.tenant.create({
+    data: {
+      id: 'c2d7e97e-462d-4c23-a4c0-771bab683de3',
+      name: 'Wave CRM',
+      slug: 'wave-crm',
+    },
+  });
+}
+
+async function getOrCreateWorkspace(tenantId: string) {
+  const existing = await prisma.workspace.findFirst({ where: { tenantId } });
+  if (existing) return existing;
+  return prisma.workspace.create({
+    data: {
+      id: '80e20129-90a6-44e5-88c4-9c63f91279a3',
+      tenantId,
+      name: 'Principal',
+      slug: 'principal',
+    },
+  });
+}
 
 async function main() {
   console.log('Seeding Pipedrive automations...');
+
+  const tenant = await getOrCreateTenant();
+  const workspace = await getOrCreateWorkspace(tenant.id);
+  const TENANT_ID = tenant.id;
+  const WORKSPACE_ID = workspace.id;
 
   const user = await prisma.user.findFirst({ where: { tenantId: TENANT_ID } });
   const pipelines = await prisma.pipeline.findMany({ where: { tenantId: TENANT_ID, workspaceId: WORKSPACE_ID } });

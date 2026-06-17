@@ -17,8 +17,12 @@ export class PipedriveAutomationService {
 
   private readonly STAGES = {
     AGUARDANDO_RETORNO: 105,
+    AGUARDANDO_RETORNO_AUTO: 114,
+    COTACAO_ENVIADA_CLOSER: 108,
     TELEFONE_INVALIDO: 114,
+    TELEFONE_INVALIDO_AUTO: 117,
     SUBSCRIBER_NOT_FOUND: 117,
+    FALHA_AUTOMACAO_CLOSER: 118,
     PERDIDO_NOT_FOUND: 118,
   } as const;
 
@@ -70,27 +74,33 @@ export class PipedriveAutomationService {
     }> = [
       {
         name: 'CadastroPrincipal',
-        condition: (isNewDeal || stageChanged) && stageId === 1,
+        condition: pipelineId !== 19 && pipelineId !== 20 && (isNewDeal || stageChanged) && stageId === 1,
         handler: () =>
           this.handleCadastroPrincipal(tenantId, workspaceId, leadId, contactId, dealTitle, product, phones, pipedriveDealId),
       },
       {
-        name: 'CadastroManual',
-        condition: (isNewDeal || stageChanged) && stageId === 107,
+        name: 'AutoCadastro',
+        condition: pipelineId === 20 && (isNewDeal || stageChanged) && stageId === 113,
         handler: () =>
-          this.handleCadastroManual(tenantId, workspaceId, leadId, contactId, dealTitle, product, phones, pipedriveDealId),
+          this.handleAutoCadastro(tenantId, workspaceId, leadId, contactId, dealTitle, product, phones, pipedriveDealId),
       },
       {
-        name: 'TrocaDeFunil',
-        condition: stageChanged && stageId === 108,
+        name: 'CloserCadastro',
+        condition: pipelineId === 19 && (isNewDeal || stageChanged) && stageId === 107,
         handler: () =>
-          this.handleTrocaDeFunil(tenantId, workspaceId, contactId, product, phones, payload, pipedriveDealId),
+          this.handleCloserCadastro(tenantId, workspaceId, leadId, contactId, dealTitle, product, phones, pipedriveDealId, payload),
+      },
+      {
+        name: 'CloserEtapa108',
+        condition: pipelineId === 19 && stageChanged && stageId === 108,
+        handler: () =>
+          this.handleCloserEtapa108(tenantId, workspaceId, contactId, pipedriveDealId),
       },
       {
         name: 'RetiradoSequencia',
         condition: stageChanged && previousStageId === 107 && pipelineId === 19 && stageId !== 107,
         handler: () =>
-          this.handleRetiradoSequencia(tenantId, workspaceId, contactId, phones, payload, pipedriveDealId),
+          this.handleRetiradoSequencia(tenantId, workspaceId, contactId, pipedriveDealId),
       },
       {
         name: 'Perdido',
@@ -251,7 +261,7 @@ export class PipedriveAutomationService {
     }
   }
 
-  private async handleCadastroManual(
+  private async handleAutoCadastro(
     tenantId: string,
     workspaceId: string,
     leadId: string,
@@ -261,7 +271,7 @@ export class PipedriveAutomationService {
     phones: string[],
     pipedriveDealId: number,
   ) {
-    this.logger.log(`[CadastroManual] Lead ${dealTitle} (${product})`);
+    this.logger.log(`[AutoCadastro] Lead ${dealTitle} (${product})`);
 
     const user = await this.pickFunnelUser(tenantId, workspaceId);
     if (user) {
@@ -272,93 +282,74 @@ export class PipedriveAutomationService {
     }
 
     const validPhone = this.pickBestPhone(phones);
-    if (!validPhone) return;
+    if (!validPhone) {
+      this.logger.warn(`[AutoCadastro] No valid phone for lead ${dealTitle}`);
+      if (pipedriveDealId) {
+        await this.updateStageOrLog(tenantId, workspaceId, pipedriveDealId, this.STAGES.TELEFONE_INVALIDO_AUTO);
+      }
+      return;
+    }
 
     const conversation = await this.createConversationForContact(tenantId, workspaceId, contactId, user?.id, validPhone);
-    if (conversation) {
-      await this.messageFlow.sendWelcomeFlow(
-        tenantId, workspaceId, conversation.id, contactId,
-        user?.name || 'Atendente', 'manual',
-      );
-
-      if (pipedriveDealId) {
-        await this.updateStageOrLog(tenantId, workspaceId, pipedriveDealId, this.STAGES.AGUARDANDO_RETORNO);
-      }
+    if (conversation && pipedriveDealId) {
+      await this.updateStageOrLog(tenantId, workspaceId, pipedriveDealId, this.STAGES.AGUARDANDO_RETORNO_AUTO);
     }
   }
 
-  private async handleTrocaDeFunil(
+  private async handleCloserCadastro(
+    tenantId: string,
+    workspaceId: string,
+    leadId: string,
+    contactId: string,
+    dealTitle: string,
+    product: ProductType,
+    phones: string[],
+    pipedriveDealId: number,
+    payload: any,
+  ) {
+    this.logger.log(`[CloserCadastro] Lead ${dealTitle} (${product})`);
+
+    const user = await this.pickFunnelUser(tenantId, workspaceId);
+    if (user) {
+      await this.prisma.lead.update({
+        where: { id: leadId },
+        data: { assignedUserId: user.id, lastActivityAt: new Date() },
+      });
+    }
+
+    const validPhone = this.pickBestPhone(phones);
+    if (!validPhone) {
+      this.logger.warn(`[CloserCadastro] No valid phone for lead ${dealTitle}`);
+      return;
+    }
+
+    await this.createConversationForContact(tenantId, workspaceId, contactId, user?.id, validPhone);
+  }
+
+  private async handleCloserEtapa108(
     tenantId: string,
     workspaceId: string,
     contactId: string,
-    product: ProductType,
-    phones: string[],
-    payload: any,
     pipedriveDealId: number,
   ) {
-    this.logger.log(`[TrocaDeFunil] Product=${product}`);
-
-    const baseUrl = this.getWebhookBaseUrl(tenantId, workspaceId);
-
-    const flowMap: Record<string, { virtua: string; gabi: string }> = {
-      SAUDE: { virtua: '1683119', gabi: '7062884' },
-      VIDA: { virtua: '2694194', gabi: '7063372' },
-      ODONTO: { virtua: '2694371', gabi: '7063272' },
-    };
-
-    const flow = flowMap[product] || flowMap['SAUDE'];
-
-    const subscriber = await this.findSubscriberPhone(tenantId, workspaceId, phones, baseUrl);
-
-    if (subscriber) {
-      const isGabi = this.isGabiPhone(subscriber.phone, payload);
-      await this.sendFlowToSubscriber(
-        baseUrl, subscriber.subscriberId,
-        isGabi ? flow.gabi : flow.virtua,
-        tenantId, workspaceId,
-      );
-      this.logger.log(`[TrocaDeFunil] Flow sent to subscriber ${subscriber.subscriberId}`);
-    } else {
-      this.logger.warn(`[TrocaDeFunil] Subscriber not found on any phone`);
-      if (pipedriveDealId) {
-        await this.updateStageOrLog(tenantId, workspaceId, pipedriveDealId, this.STAGES.SUBSCRIBER_NOT_FOUND);
-        await this.createNoteOrLog(tenantId, workspaceId, pipedriveDealId,
-          `[TrocaDeFunil] Subscriber nao encontrado nos telefones: ${phones.join(', ')}`,
-        );
-      }
-    }
+    this.logger.log(`[CloserEtapa108]`);
 
     await this.closeActiveConversation(tenantId, workspaceId, contactId);
+
+    if (pipedriveDealId) {
+      await this.updateStageOrLog(tenantId, workspaceId, pipedriveDealId, this.STAGES.COTACAO_ENVIADA_CLOSER);
+    }
   }
 
   private async handleRetiradoSequencia(
     tenantId: string,
     workspaceId: string,
     contactId: string,
-    phones: string[],
-    payload: any,
     pipedriveDealId: number,
   ) {
     this.logger.log(`[RetiradoSequencia]`);
 
-    const baseUrl = this.getWebhookBaseUrl(tenantId, workspaceId);
-
-    const subscriber = await this.findSubscriberPhone(tenantId, workspaceId, phones, baseUrl);
-
-    if (subscriber) {
-      const isGabi = this.isGabiPhone(subscriber.phone, payload);
-      const flowId = isGabi ? '7062891' : '1683128';
-      await this.sendFlowToSubscriber(baseUrl, subscriber.subscriberId, flowId, tenantId, workspaceId);
-      this.logger.log(`[RetiradoSequencia] Flow ${flowId} sent`);
-    } else {
-      this.logger.warn(`[RetiradoSequencia] Subscriber not found`);
-      if (pipedriveDealId) {
-        await this.updateStageOrLog(tenantId, workspaceId, pipedriveDealId, this.STAGES.PERDIDO_NOT_FOUND);
-        await this.createNoteOrLog(tenantId, workspaceId, pipedriveDealId,
-          `[RetiradoSequencia] Subscriber nao encontrado nos telefones: ${phones.join(', ')}`,
-        );
-      }
-    }
+    await this.closeActiveConversation(tenantId, workspaceId, contactId);
   }
 
   private async handlePerdido(
@@ -369,24 +360,26 @@ export class PipedriveAutomationService {
     payload: any,
     pipedriveDealId: number,
   ) {
-    this.logger.log(`[Perdido]`);
+    const pipelineId = payload?.pipelineId;
+    this.logger.log(`[Perdido] pipeline=${pipelineId}`);
 
-    const baseUrl = this.getWebhookBaseUrl(tenantId, workspaceId);
+    if (pipelineId === 1) {
+      const baseUrl = this.getWebhookBaseUrl(tenantId, workspaceId);
+      const subscriber = await this.findSubscriberPhone(tenantId, workspaceId, phones, baseUrl);
 
-    const subscriber = await this.findSubscriberPhone(tenantId, workspaceId, phones, baseUrl);
-
-    if (subscriber) {
-      const isGabi = this.isGabiPhone(subscriber.phone, payload);
-      const flowId = isGabi ? '7062892' : '1683131';
-      await this.sendFlowToSubscriber(baseUrl, subscriber.subscriberId, flowId, tenantId, workspaceId);
-      this.logger.log(`[Perdido] Flow ${flowId} sent`);
-    } else {
-      this.logger.warn(`[Perdido] Subscriber not found`);
-      if (pipedriveDealId) {
-        await this.updateStageOrLog(tenantId, workspaceId, pipedriveDealId, this.STAGES.PERDIDO_NOT_FOUND);
-        await this.createNoteOrLog(tenantId, workspaceId, pipedriveDealId,
-          `[Perdido] Subscriber nao encontrado nos telefones: ${phones.join(', ')}`,
-        );
+      if (subscriber) {
+        const isGabi = this.isGabiPhone(subscriber.phone, payload);
+        const flowId = isGabi ? '7062892' : '1683131';
+        await this.sendFlowToSubscriber(baseUrl, subscriber.subscriberId, flowId, tenantId, workspaceId);
+        this.logger.log(`[Perdido] Flow ${flowId} sent`);
+      } else {
+        this.logger.warn(`[Perdido] Subscriber not found`);
+        if (pipedriveDealId) {
+          await this.updateStageOrLog(tenantId, workspaceId, pipedriveDealId, this.STAGES.PERDIDO_NOT_FOUND);
+          await this.createNoteOrLog(tenantId, workspaceId, pipedriveDealId,
+            `[Perdido] Subscriber nao encontrado nos telefones: ${phones.join(', ')}`,
+          );
+        }
       }
     }
 

@@ -1,21 +1,21 @@
--- AlterTable (safe: columns may already exist from db push)
-DO $$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='AutomationLog' AND column_name='pipelineRule') THEN
-    ALTER TABLE "AutomationLog" ADD COLUMN "pipelineRule" TEXT;
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='AutomationLog' AND column_name='source') THEN
-    ALTER TABLE "AutomationLog" ADD COLUMN "source" TEXT NOT NULL DEFAULT 'engine';
-  END IF;
+DO $$ BEGIN
+  ALTER TABLE "AutomationLog" ADD COLUMN "pipelineRule" TEXT;
+EXCEPTION WHEN duplicate_column THEN NULL;
 END $$;
 
-ALTER TABLE "AutomationLog" ALTER COLUMN "automationId" DROP NOT NULL;
+DO $$ BEGIN
+  ALTER TABLE "AutomationLog" ADD COLUMN "source" TEXT NOT NULL DEFAULT 'engine';
+EXCEPTION WHEN duplicate_column THEN NULL;
+END $$;
 
-DO $$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='PipedriveIntegration' AND column_name='webhookIds') THEN
-    ALTER TABLE "PipedriveIntegration" ADD COLUMN "webhookIds" JSONB;
-  END IF;
+DO $$ BEGIN
+  ALTER TABLE "AutomationLog" ALTER COLUMN "automationId" DROP NOT NULL;
+EXCEPTION WHEN others THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  ALTER TABLE "PipedriveIntegration" ADD COLUMN "webhookIds" JSONB;
+EXCEPTION WHEN duplicate_column THEN NULL;
 END $$;
 
 -- CreateIndex

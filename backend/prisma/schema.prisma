@@ -147,6 +147,7 @@ enum AutomationTriggerType {
   schedule
   webhook
   condition
+  pipedrive_deal_updated
 }
 
 enum AutomationActionType {
@@ -162,7 +163,9 @@ enum AutomationActionType {
   webhook
   ai_agent
   create_lead
+  create_conversation
   close_conversation
+  pipedrive_update_stage
 }
 
 model Tenant {
@@ -606,6 +609,7 @@ model PipedriveIntegration {
   webhookAuthUser String?
   webhookAuthPass String?
   webhookIds      Json?
+  funnelConfig    Json?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 

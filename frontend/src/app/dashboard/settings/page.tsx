@@ -2173,6 +2173,19 @@ function PipedriveTab() {
     queryFn: () => api.get('/pipedrive'),
   });
 
+  const [funnelUsers, setFunnelUsers] = useState<{ name: string; weight: number }[]>(
+    [{ name: '', weight: 70 }, { name: '', weight: 30 }]
+  );
+
+  useEffect(() => {
+    if (integration) {
+      const stored = (integration as any).funnelConfig as { name: string; weight: number }[] | undefined;
+      if (stored && stored.length > 0) {
+        setFunnelUsers(stored);
+      }
+    }
+  }, [integration?.id]);
+
   const disconnectMutation = useMutation({
     mutationFn: () => api.delete('/pipedrive'),
     onSuccess: () => {
@@ -2198,6 +2211,24 @@ function PipedriveTab() {
       toast.success(`Leads sincronizados: ${data.created} criados, ${data.updated} atualizados`);
     },
     onError: () => toast.error('Erro ao sincronizar leads'),
+  });
+
+  const syncPipelinesMutation = useMutation({
+    mutationFn: () => api.post('/pipedrive/sync/pipelines'),
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ['pipedrive'] });
+      toast.success(`Pipelines sincronizados: ${data.created} criados, ${data.updated} atualizados`);
+    },
+    onError: () => toast.error('Erro ao sincronizar pipelines'),
+  });
+
+  const saveFunnelConfigMutation = useMutation({
+    mutationFn: (data: { users: { name: string; weight: number }[] }) => api.patch('/pipedrive/funnel-config', data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['pipedrive'] });
+      toast.success('Configuração de funil salva com sucesso');
+    },
+    onError: () => toast.error('Erro ao salvar configuração de funil'),
   });
 
   const updateSyncMutation = useMutation({
@@ -2348,6 +2379,20 @@ function PipedriveTab() {
                 className="h-5 w-5 rounded border-border text-primary focus:ring-ring"
               />
             </label>
+            <label className="flex items-center justify-between gap-4 rounded-lg border border-border bg-background p-4 cursor-pointer hover:bg-muted/30 transition-colors">
+              <div>
+                <p className="text-sm font-medium text-foreground">Pipelines</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Sincronizar Pipelines e etapas do Pipedrive com o Wave CRM</p>
+              </div>
+              <input
+                type="checkbox"
+                checked={integration.syncPipelines}
+                onChange={(e) => {
+                  updateSyncMutation.mutate({ syncPipelines: e.target.checked });
+                }}
+                className="h-5 w-5 rounded border-border text-primary focus:ring-ring"
+              />
+            </label>
           </div>
         </div>
 
@@ -2378,6 +2423,105 @@ function PipedriveTab() {
               )}
               Sincronizar Leads
             </button>
+            <button
+              onClick={() => syncPipelinesMutation.mutate()}
+              disabled={syncPipelinesMutation.isPending || !integration.syncPipelines}
+              className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+            >
+              {syncPipelinesMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4" />
+              )}
+              Sincronizar Pipelines
+            </button>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="text-sm font-semibold text-foreground">Atribuição de Funil</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Configure os usuários e a distribuição percentual para leads do funil Pipedrive
+              </p>
+            </div>
+          </div>
+          <div className="space-y-3">
+            {(funnelUsers || []).map((fu, idx) => (
+              <div key={idx} className="flex items-center gap-3 rounded-lg border border-border bg-background p-3">
+                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary shrink-0">
+                  {fu.name.charAt(0).toUpperCase()}
+                </div>
+                <input
+                  type="text"
+                  value={fu.name}
+                  onChange={(e) => {
+                    const next = [...funnelUsers];
+                    next[idx] = { ...next[idx], name: e.target.value };
+                    setFunnelUsers(next);
+                  }}
+                  placeholder="Nome do usuário"
+                  className="flex-1 rounded-md border border-border bg-transparent px-3 py-1.5 text-sm outline-none focus:border-ring"
+                />
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min={1}
+                    max={100}
+                    value={fu.weight}
+                    onChange={(e) => {
+                      const next = [...funnelUsers];
+                      next[idx] = { ...next[idx], weight: Math.min(100, Math.max(1, parseInt(e.target.value) || 0)) };
+                      setFunnelUsers(next);
+                    }}
+                    className="w-20 rounded-md border border-border bg-transparent px-3 py-1.5 text-sm text-center outline-none focus:border-ring"
+                  />
+                  <span className="text-xs text-muted-foreground">%</span>
+                </div>
+                <button
+                  onClick={() => {
+                    if (funnelUsers.length <= 1) return;
+                    setFunnelUsers(funnelUsers.filter((_, i) => i !== idx));
+                  }}
+                  disabled={funnelUsers.length <= 1}
+                  className="inline-flex items-center justify-center rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-30"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            ))}
+            <button
+              onClick={() => setFunnelUsers([...funnelUsers, { name: '', weight: 50 }])}
+              className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-border p-3 text-sm text-muted-foreground transition-colors hover:border-primary hover:text-primary"
+            >
+              <Plus className="h-4 w-4" />
+              Adicionar Usuário
+            </button>
+            <div className="flex items-center justify-between pt-2">
+              <span className="text-xs text-muted-foreground">
+                Total: {funnelUsers.reduce((s, u) => s + u.weight, 0)}%
+                {funnelUsers.reduce((s, u) => s + u.weight, 0) !== 100 && (
+                  <span className="ml-1 text-destructive">(deve ser 100%)</span>
+                )}
+              </span>
+              <button
+                onClick={() => saveFunnelConfigMutation.mutate({ users: funnelUsers })}
+                disabled={
+                  saveFunnelConfigMutation.isPending ||
+                  funnelUsers.some((u) => !u.name.trim()) ||
+                  funnelUsers.reduce((s, u) => s + u.weight, 0) !== 100
+                }
+                className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50 shrink-0"
+              >
+                {saveFunnelConfigMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Save className="h-4 w-4" />
+                )}
+                Salvar
+              </button>
+            </div>
           </div>
         </div>
       </div>

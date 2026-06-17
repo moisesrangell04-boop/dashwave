@@ -23,6 +23,7 @@ import { Response } from 'express';
 import { PipedriveService } from './pipedrive.service';
 import { StartOAuthDto } from './dto/start-oauth.dto';
 import { UpdateSyncDto } from './dto/update-sync.dto';
+import { UpdateFunnelConfigDto } from './dto/update-funnel-config.dto';
 import { JwtAuthGuard } from '@common/guards/jwt-auth.guard';
 import { Public } from '@common/decorators/public.decorator';
 import { CurrentUser } from '@common/decorators/current-user.decorator';
@@ -146,6 +147,16 @@ export class PipedriveController {
     @CurrentUser('workspaceId') workspaceId: string,
   ) {
     return this.pipedriveService.getPipelines(tenantId, workspaceId);
+  }
+
+  @Patch('funnel-config')
+  @ApiOperation({ summary: 'Update funnel user assignment configuration' })
+  updateFunnelConfig(
+    @CurrentUser('tenantId') tenantId: string,
+    @CurrentUser('workspaceId') workspaceId: string,
+    @Body() dto: UpdateFunnelConfigDto,
+  ) {
+    return this.pipedriveService.updateFunnelConfig(tenantId, workspaceId, dto);
   }
 
   @Get('stages')

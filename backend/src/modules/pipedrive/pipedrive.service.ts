@@ -305,6 +305,28 @@ export class PipedriveService {
     return updated;
   }
 
+  async updateFunnelConfig(tenantId: string, workspaceId: string, dto: { users: { name: string; weight: number }[] }) {
+    const integration = await this.prisma.pipedriveIntegration.findUnique({
+      where: { tenantId_workspaceId: { tenantId, workspaceId } },
+    });
+
+    if (!integration) {
+      throw new NotFoundException('Pipedrive integration not found');
+    }
+
+    const totalWeight = dto.users.reduce((sum, u) => sum + u.weight, 0);
+    if (totalWeight !== 100) {
+      throw new BadRequestException('Total weight must equal 100');
+    }
+
+    const updated = await this.prisma.pipedriveIntegration.update({
+      where: { tenantId_workspaceId: { tenantId, workspaceId } },
+      data: { funnelConfig: dto.users as any },
+    });
+
+    return updated;
+  }
+
   async getPipelines(tenantId: string, workspaceId: string) {
     const integration = await this.getIntegration(tenantId, workspaceId);
     if (!integration) throw new NotFoundException('Pipedrive not connected');

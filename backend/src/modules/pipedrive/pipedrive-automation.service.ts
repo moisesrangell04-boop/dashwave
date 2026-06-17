@@ -195,29 +195,41 @@ export class PipedriveAutomationService {
     tenantId: string,
     workspaceId: string,
   ) {
-    const funnelUsers = await this.prisma.user.findMany({
-      where: {
-        tenantId,
-        workspaceId,
-        name: { in: ['Gabi', 'Dani'] },
-      },
+    const integration = await this.prisma.pipedriveIntegration.findUnique({
+      where: { tenantId_workspaceId: { tenantId, workspaceId } },
     });
 
-    const gabi = funnelUsers.find((u) => u.name === 'Gabi');
-    const dani = funnelUsers.find((u) => u.name === 'Dani');
+    const funnelConfig = integration?.funnelConfig as { name: string; weight: number }[] | null;
 
-    if (gabi && dani) {
-      this.assignmentCounter++;
-      const weighted = this.assignmentCounter % 10;
-      const pickGabi = weighted < 7;
-      return pickGabi ? gabi : dani;
+    if (funnelConfig && funnelConfig.length > 0) {
+      const names = funnelConfig.map((u) => u.name);
+      const funnelUsers = await this.prisma.user.findMany({
+        where: { tenantId, workspaceId, name: { in: names } },
+      });
+
+      const availableUsers = funnelConfig
+        .map((cfg) => {
+          const user = funnelUsers.find((u) => u.name === cfg.name);
+          return user ? { user, weight: cfg.weight } : null;
+        })
+        .filter(Boolean) as { user: any; weight: number }[];
+
+      if (availableUsers.length > 0) {
+        this.assignmentCounter++;
+        const totalWeight = availableUsers.reduce((s, u) => s + u.weight, 0);
+        const roll = this.assignmentCounter % totalWeight;
+        let cumulative = 0;
+        for (const entry of availableUsers) {
+          cumulative += entry.weight;
+          if (roll < cumulative) return entry.user;
+        }
+        return availableUsers[availableUsers.length - 1].user;
+      }
     }
-
-    if (gabi) return gabi;
-    if (dani) return dani;
 
     return this.prisma.user.findFirst({
       where: { tenantId, workspaceId },
+      orderBy: { lastLoginAt: 'desc' },
     });
   }
 

@@ -327,6 +327,7 @@ export interface PipedriveIntegration {
   webhookId?: number;
   webhookAuthUser?: string;
   webhookAuthPass?: string;
+  funnelConfig?: { name: string; weight: number }[];
   lastSyncAt?: string;
   createdAt: string;
   updatedAt: string;

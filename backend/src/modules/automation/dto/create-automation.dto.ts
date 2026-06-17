@@ -43,6 +43,7 @@ export enum AutomationActionType {
   create_lead = 'create_lead',
   create_conversation = 'create_conversation',
   close_conversation = 'close_conversation',
+  pipedrive_update_stage = 'pipedrive_update_stage',
 }
 
 export class ConditionDto {

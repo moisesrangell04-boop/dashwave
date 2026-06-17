@@ -56,7 +56,7 @@ export class PipedriveAutomationService {
       },
       {
         name: 'RetiradoSequencia',
-        condition: stageChanged && pipelineId === 6 && stageId !== 107,
+        condition: stageChanged && previousStageId === 107 && pipelineId === 19 && stageId !== 107,
         handler: () => this.closeActiveConversation(tenantId, workspaceId, contactId),
       },
       {

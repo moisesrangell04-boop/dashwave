@@ -513,8 +513,10 @@ model AutomationLog {
   id              String   @id @default(uuid())
   tenantId        String
   workspaceId     String
-  automationId    String
+  automationId    String?
+  source          String   @default("engine")
   eventType       String
+  pipelineRule    String?
   payload         Json?
   actions         Json?
   success         Boolean  @default(true)
@@ -524,11 +526,12 @@ model AutomationLog {
 
   tenant     Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   workspace  Workspace  @relation(fields: [workspaceId], references: [id])
-  automation Automation @relation(fields: [automationId], references: [id], onDelete: Cascade)
+  automation Automation? @relation(fields: [automationId], references: [id], onDelete: SetNull)
 
   @@index([tenantId, workspaceId])
   @@index([automationId])
   @@index([tenantId, executedAt])
+  @@index([source, executedAt])
 }
 
 model AuditLog {
@@ -602,6 +605,7 @@ model PipedriveIntegration {
   webhookId       Int?
   webhookAuthUser String?
   webhookAuthPass String?
+  webhookIds      Json?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 

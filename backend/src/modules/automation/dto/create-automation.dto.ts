@@ -20,6 +20,7 @@ export enum AutomationTriggerType {
   lead_moved = 'lead_moved',
   lead_created = 'lead_created',
   lead_lost = 'lead_lost',
+  pipedrive_deal_updated = 'pipedrive.deal_updated',
   contact_tag_added = 'contact_tag_added',
   contact_created = 'contact_created',
   schedule = 'schedule',
@@ -40,6 +41,7 @@ export enum AutomationActionType {
   webhook = 'webhook',
   ai_agent = 'ai_agent',
   create_lead = 'create_lead',
+  create_conversation = 'create_conversation',
   close_conversation = 'close_conversation',
 }
 

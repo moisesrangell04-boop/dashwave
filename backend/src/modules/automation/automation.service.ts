@@ -305,6 +305,7 @@ export class AutomationService {
         tenantId: automation.tenantId,
         workspaceId: automation.workspaceId,
         automationId: automation.id,
+        source: 'engine',
         eventType: (automation.trigger as any)?.type || 'unknown',
         payload: payload as any,
         actions: actionResults as any,
@@ -743,10 +744,81 @@ export class AutomationService {
         });
       }
 
+      case 'create_conversation': {
+        const contactId = payload.contactId || config.contactId;
+        if (!contactId) {
+          throw new Error('contactId is required for create_conversation action');
+        }
+
+        const contact = await this.prisma.contact.findFirst({
+          where: { id: contactId, tenantId },
+        });
+
+        if (!contact) {
+          throw new Error(`Contact ${contactId} not found`);
+        }
+
+        const whatsappInstance = await this.prisma.whatsAppInstance.findFirst({
+          where: { tenantId, workspaceId: payload.workspaceId, isActive: true },
+        });
+
+        if (!whatsappInstance) {
+          throw new Error('No active WhatsApp instance found');
+        }
+
+        const existingConversation = await this.prisma.conversation.findFirst({
+          where: {
+            tenantId,
+            contactId,
+            status: { in: ['active', 'pending', 'waiting'] },
+          },
+        });
+
+        if (existingConversation) {
+          return existingConversation;
+        }
+
+        const conversation = await this.prisma.conversation.create({
+          data: {
+            tenantId,
+            workspaceId: contact.workspaceId,
+            contactId: contact.id,
+            whatsappInstanceId: whatsappInstance.id,
+            status: 'pending',
+            channel: 'whatsapp',
+            priority: 'medium',
+            assignedUserId: config.userId || null,
+            assignedAgentId: config.agentId || null,
+          },
+        });
+
+        if (config.agentId) {
+          await this.prisma.conversation.update({
+            where: { id: conversation.id },
+            data: { aiActive: true },
+          });
+        }
+
+        return conversation;
+      }
+
       case 'close_conversation': {
-        const conversationId = payload.conversationId || config.conversationId;
+        let conversationId = payload.conversationId || config.conversationId;
+
+        if (!conversationId && payload.contactId) {
+          const conv = await this.prisma.conversation.findFirst({
+            where: {
+              tenantId,
+              contactId: payload.contactId,
+              status: { in: ['active', 'pending', 'waiting'] },
+            },
+            orderBy: { createdAt: 'desc' },
+          });
+          if (conv) conversationId = conv.id;
+        }
+
         if (!conversationId) {
-          throw new Error('conversationId is required for close_conversation action');
+          return { skipped: true, reason: 'No active conversation found' };
         }
 
         return this.prisma.conversation.update({

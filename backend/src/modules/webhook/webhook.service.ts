@@ -10,6 +10,7 @@ import { AutomationService } from '@modules/automation/automation.service';
 import { AiService } from '@modules/ai/ai.service';
 import { WhatsAppService } from '@modules/whatsapp/whatsapp.service';
 import { PipedriveService } from '@modules/pipedrive/pipedrive.service';
+import { PipedriveAutomationService } from '@modules/pipedrive/pipedrive-automation.service';
 import { ConversationGateway } from '../gateway/conversation.gateway';
 import { CreateWebhookDto } from './dto/create-webhook.dto';
 
@@ -25,19 +26,30 @@ export class WebhookService {
     @Optional() private readonly aiService: AiService,
     @Optional() private readonly whatsappService: WhatsAppService,
     @Optional() private readonly pipedriveService: PipedriveService,
+    @Optional() private readonly pipedriveAutomationService: PipedriveAutomationService,
   ) {}
 
   async handlePipedriveWebhook(tenantId: string, workspaceId: string, payload: any) {
     if (!this.pipedriveService) return { status: 'ok' };
 
-    const result = await this.pipedriveService.processDealWebhook(tenantId, workspaceId, payload);
-    if (!result) return { status: 'ok' };
+    const object = payload?.meta?.object;
 
-    this.logger.log(
-      `Pipedrive deal ${result.pipedriveDealId} updated (stage ${result.previousStageId} -> ${result.stageId})`,
-    );
-
-    await this.triggerAutomations(tenantId, workspaceId, 'pipedrive.deal_updated', result);
+    if (object === 'deal') {
+      const result = await this.pipedriveService.processDealWebhook(tenantId, workspaceId, payload);
+      if (result) {
+        this.logger.log(
+          `Pipedrive deal ${result.pipedriveDealId} updated (stage ${result.previousStageId} -> ${result.stageId})`,
+        );
+        await this.triggerAutomations(tenantId, workspaceId, 'pipedrive.deal_updated', result);
+        if (this.pipedriveAutomationService) {
+          await this.pipedriveAutomationService.processDealUpdated(tenantId, workspaceId, result);
+        }
+      }
+    } else if (object === 'person') {
+      await this.pipedriveService.processPersonWebhook(tenantId, workspaceId, payload);
+    } else if (object === 'organization') {
+      await this.pipedriveService.processOrganizationWebhook(tenantId, workspaceId, payload);
+    }
 
     return { status: 'ok' };
   }

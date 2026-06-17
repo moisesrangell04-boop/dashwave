@@ -15,6 +15,19 @@ export class PipedriveService {
   private readonly logger = new Logger(PipedriveService.name);
   private readonly apiBase = 'https://api.pipedrive.com/api/v1';
 
+  private sanitize(obj: any): any {
+    if (typeof obj === 'string') return obj.replace(/\0/g, '');
+    if (Array.isArray(obj)) return obj.map(v => this.sanitize(v));
+    if (obj && typeof obj === 'object') {
+      const result: any = {};
+      for (const [k, v] of Object.entries(obj)) {
+        result[k] = this.sanitize(v);
+      }
+      return result;
+    }
+    return obj;
+  }
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
@@ -80,16 +93,18 @@ export class PipedriveService {
   async handleCallback(code: string, state: string) {
     const { tenantId, workspaceId } = this.verifyState(state);
 
+    const params = new URLSearchParams({
+      grant_type: 'authorization_code',
+      code,
+      client_id: this.clientId,
+      client_secret: this.clientSecret,
+      redirect_uri: this.redirectUri,
+    });
+
     const tokenResponse = await fetch('https://oauth.pipedrive.com/oauth/token', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        grant_type: 'authorization_code',
-        code,
-        client_id: this.clientId,
-        client_secret: this.clientSecret,
-        redirect_uri: this.redirectUri,
-      }),
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: params.toString(),
     });
 
     if (!tokenResponse.ok) {
@@ -159,69 +174,92 @@ export class PipedriveService {
     return { success: true };
   }
 
-  /**
-   * Registers a Pipedrive webhook (event_object=deal, event_action=*) pointing
-   * back to our backend, so both new deals (e.g. organic leads from a website
-   * form) and stage/field changes are pushed to us in real time.
-   */
   async registerWebhook(tenantId: string, workspaceId: string, integration: any) {
     try {
       const token = await this.getValidToken(integration);
       const backendUrl = this.configService.get<string>('backendUrl');
-      const subscriptionUrl = `${backendUrl}/api/webhooks/pipedrive/${tenantId}/${workspaceId}`;
+      const baseUrl = `${backendUrl}/api/webhooks/pipedrive/${tenantId}/${workspaceId}`;
 
       const authUser = integration.webhookAuthUser || crypto.randomBytes(8).toString('hex');
       const authPass = integration.webhookAuthPass || crypto.randomBytes(16).toString('hex');
 
-      const response = await fetch(`${this.apiBase}/webhooks`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          subscription_url: subscriptionUrl,
-          event_action: '*',
-          event_object: 'deal',
-          http_auth_user: authUser,
-          http_auth_password: authPass,
-        }),
-      });
+      const companyDomain = integration.companyDomain;
+      const apiBase = companyDomain
+        ? `https://${companyDomain}.pipedrive.com/api/v1`
+        : this.apiBase;
 
-      if (!response.ok) {
-        const err = await response.text();
-        this.logger.error(`Failed to register Pipedrive webhook: ${err}`);
-        return;
+      await this.removeWebhook(integration);
+
+      const objects = ['deal', 'person', 'organization'];
+      const ids: Record<string, number> = {};
+
+      for (const object of objects) {
+        const response = await fetch(`${apiBase}/webhooks`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            subscription_url: baseUrl,
+            event_action: '*',
+            event_object: object,
+            http_auth_user: authUser,
+            http_auth_password: authPass,
+          }),
+        });
+
+        if (!response.ok) {
+          const err = await response.text();
+          this.logger.error(`Failed to register Pipedrive webhook for ${object}: ${err}`);
+          continue;
+        }
+
+        const body = await response.json();
+        ids[object] = body.data?.id;
       }
-
-      const body = await response.json();
 
       await this.prisma.pipedriveIntegration.update({
         where: { id: integration.id },
         data: {
-          webhookId: body.data?.id,
+          webhookId: ids.deal || null,
           webhookAuthUser: authUser,
           webhookAuthPass: authPass,
+          webhookIds: ids,
         },
       });
 
-      this.logger.log(`Pipedrive webhook registered for tenant ${tenantId}`);
+      this.logger.log(`Pipedrive webhooks registered for tenant ${tenantId}: ${JSON.stringify(ids)}`);
     } catch (err: any) {
-      this.logger.error(`Error registering Pipedrive webhook: ${err.message}`);
+      this.logger.error(`Error registering Pipedrive webhooks: ${err.message}`);
     }
   }
 
   private async removeWebhook(integration: any) {
-    if (!integration.webhookId) return;
-
     try {
       const token = await this.getValidToken(integration);
-      await fetch(`${this.apiBase}/webhooks/${integration.webhookId}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const companyDomain = integration.companyDomain;
+      const apiBase = companyDomain
+        ? `https://${companyDomain}.pipedrive.com/api/v1`
+        : this.apiBase;
+
+      const ids: number[] = [];
+      if (integration.webhookId) ids.push(integration.webhookId);
+      if (integration.webhookIds) {
+        const stored: Record<string, number> = integration.webhookIds as any;
+        for (const v of Object.values(stored)) {
+          if (v && !ids.includes(v)) ids.push(v);
+        }
+      }
+
+      for (const id of ids) {
+        await fetch(`${apiBase}/webhooks/${id}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${token}` },
+        }).catch(() => {});
+      }
     } catch (err: any) {
-      this.logger.error(`Error removing Pipedrive webhook: ${err.message}`);
+      this.logger.error(`Error removing Pipedrive webhooks: ${err.message}`);
     }
   }
 
@@ -300,8 +338,9 @@ export class PipedriveService {
     let updated = 0;
 
     for (const person of persons) {
-      const phone = person.phone?.[0]?.value?.replace(/[^0-9]/g, '') || '';
-      const email = person.email?.[0]?.value || '';
+      const phone = person.phone?.[0]?.value?.replace(/[^0-9]/g, '').replace(/\0/g, '') || '';
+      const email = (person.email?.[0]?.value || '').replace(/\0/g, '');
+      const name = (person.name || email || 'Unknown').replace(/\0/g, '');
 
       if (!phone && !email) continue;
 
@@ -309,36 +348,39 @@ export class PipedriveService {
         ? await this.prisma.contact.findUnique({
             where: { tenantId_phone: { tenantId, phone } },
           })
-        : null;
+        : email
+          ? await this.prisma.contact.findFirst({
+              where: { tenantId, email },
+            })
+          : null;
 
       if (existing) {
         await this.prisma.contact.update({
           where: { id: existing.id },
-          data: {
-            name: person.name || existing.name,
+          data: this.sanitize({
+            name: name || existing.name,
             ...(email && { email }),
             metadata: {
               ...(existing.metadata as any),
               pipedrivePersonId: person.id,
               pipedriveUpdatedAt: person.update_time,
             },
-          },
+          }),
         });
         updated++;
       } else {
-        const name = person.name || phone || email;
         await this.prisma.contact.create({
-          data: {
+          data: this.sanitize({
             tenantId,
             workspaceId,
             name,
-            phone: phone || 'unknown',
+            phone: phone || `pipedrive-${person.id}`,
             email: email || undefined,
             metadata: {
               pipedrivePersonId: person.id,
               pipedriveCreatedAt: person.add_time,
             },
-          },
+          }),
         });
         created++;
       }
@@ -381,14 +423,29 @@ export class PipedriveService {
 
     for (const deal of deals) {
       const personId = deal.person_id?.value || deal.person_id;
-      const contact = personId
-        ? await this.prisma.contact.findFirst({
-            where: {
-              tenantId,
-              metadata: { path: ['pipedrivePersonId'], equals: personId },
-            },
-          })
-        : null;
+      let contact: any = null;
+
+      if (personId) {
+        contact = await this.prisma.contact.findFirst({
+          where: {
+            tenantId,
+            metadata: { path: ['pipedrivePersonId'], equals: personId },
+          },
+        });
+      }
+
+      if (!contact) {
+        const personName = deal.person_name || '';
+        contact = await this.prisma.contact.create({
+          data: this.sanitize({
+            tenantId,
+            workspaceId,
+            name: personName || deal.title || 'Pipedrive Deal',
+            phone: `pipedrive-deal-${deal.id}`,
+            metadata: { pipedrivePersonId: personId || null },
+          }),
+        });
+      }
 
       const existing = await this.prisma.lead.findFirst({
         where: {
@@ -403,7 +460,7 @@ export class PipedriveService {
           data: {
             title: deal.title || existing.title,
             value: deal.value ? Number(deal.value) : existing.value,
-            ...(contact && { contactId: contact.id }),
+            contactId: contact.id,
             metadata: {
               ...(existing.metadata as any),
               pipedriveDealId: deal.id,
@@ -412,9 +469,9 @@ export class PipedriveService {
           },
         });
         updated++;
-      } else if (contact) {
+      } else {
         await this.prisma.lead.create({
-          data: {
+          data: this.sanitize({
             tenantId,
             workspaceId,
             pipelineId: defaultPipeline.id,
@@ -427,7 +484,7 @@ export class PipedriveService {
               pipedriveDealId: deal.id,
               pipedriveCreatedAt: deal.add_time,
             },
-          },
+          }),
         });
         created++;
       }
@@ -440,6 +497,72 @@ export class PipedriveService {
 
     this.logger.log(`Pipedrive sync: ${created} deals created, ${updated} updated`);
     return { created, updated, total: deals.length };
+  }
+
+  async syncPipelines(tenantId: string, workspaceId: string) {
+    const integration = await this.getIntegration(tenantId, workspaceId);
+    if (!integration) throw new NotFoundException('Pipedrive not connected');
+
+    const token = await this.getValidToken(integration);
+
+    const pipelinesData = await this.pipedriveGet(token, '/pipelines') || [];
+
+    const hasExistingDefault = await this.prisma.pipeline.findFirst({
+      where: { tenantId, workspaceId, isDefault: true },
+    });
+
+    let created = 0;
+    let updated = 0;
+
+    for (const pd of pipelinesData) {
+      const stagesData = await this.pipedriveGet(token, `/stages?pipeline_id=${pd.id}`) || [];
+
+      const stages = stagesData.map((s: any, idx: number) => ({
+        id: `pipedrive-${s.id}`,
+        pipedriveId: s.id,
+        name: s.name,
+        order: s.order_nr ?? idx,
+        isDefault: idx === 0,
+      }));
+
+      const existing = await this.prisma.pipeline.findUnique({
+        where: {
+          tenantId_workspaceId_name: { tenantId, workspaceId, name: pd.name },
+        },
+      });
+
+      if (existing) {
+        await this.prisma.pipeline.update({
+          where: { id: existing.id },
+          data: this.sanitize({
+            stages,
+            isDefault: existing.isDefault,
+          }),
+        });
+        updated++;
+      } else {
+        const isDefault = !hasExistingDefault && created === 0 && updated === 0;
+        await this.prisma.pipeline.create({
+          data: this.sanitize({
+            tenantId,
+            workspaceId,
+            name: pd.name,
+            description: null,
+            stages,
+            isDefault,
+          }),
+        });
+        created++;
+      }
+    }
+
+    await this.prisma.pipedriveIntegration.update({
+      where: { tenantId_workspaceId: { tenantId, workspaceId } },
+      data: { syncPipelines: true },
+    });
+
+    this.logger.log(`Pipedrive sync: ${created} pipelines created, ${updated} updated`);
+    return { created, updated, total: pipelinesData.length };
   }
 
   /**
@@ -460,15 +583,24 @@ export class PipedriveService {
 
     const personId = typeof deal.person_id === 'object' ? deal.person_id?.value : deal.person_id;
     let contact: any = null;
+    let person: any = null;
 
     if (personId) {
-      const person = await this.pipedriveGet(token, `/persons/${personId}`).catch(() => null);
+      person = await this.pipedriveGet(token, `/persons/${personId}`).catch(() => null);
       if (person) {
         contact = await this.upsertContactFromPerson(tenantId, workspaceId, person);
       }
     }
 
     const lead = await this.upsertLeadFromDeal(tenantId, workspaceId, deal, contact);
+
+    // Fetch full deal with custom fields
+    let fullDeal: any = null;
+    try {
+      fullDeal = await this.pipedriveGet(token, `/deals/${deal.id}`);
+    } catch (e) {
+      // non-critical, continue without custom fields
+    }
 
     return {
       action: body?.meta?.action, // 'added' | 'updated' | 'merged' | 'deleted'
@@ -482,12 +614,96 @@ export class PipedriveService {
       previousStageId: previous?.stage_id,
       dealTitle: deal.title,
       value: deal.value,
+      status: deal.status,
+      personUserId: person?.owner_id?.id || person?.user_id?.id,
+      personEmail: person?.email?.[0]?.value,
+      orgName: deal.org_name,
+      customFields: fullDeal ? this.extractCustomFields(fullDeal) : null,
     };
   }
 
+  private extractCustomFields(deal: any): Record<string, any> {
+    if (!deal) return {};
+    const fields: Record<string, any> = {};
+    for (const [key, value] of Object.entries(deal)) {
+      if (key.startsWith('_')) continue;
+      if (key.includes(' ')) continue;
+      if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+        fields[key] = value;
+      }
+    }
+    return fields;
+  }
+
+  async processPersonWebhook(tenantId: string, workspaceId: string, body: any) {
+    const person = body?.current;
+    if (!person) return { status: 'ok' };
+
+    const integration = await this.getIntegration(tenantId, workspaceId);
+    if (!integration) return { status: 'ok' };
+
+    const contact = await this.upsertContactFromPerson(tenantId, workspaceId, person);
+    if (contact) {
+      this.logger.log(`Pipedrive person ${person.id} synced to contact ${contact.id}`);
+    }
+
+    return { status: 'ok', contactId: contact?.id };
+  }
+
+  async processOrganizationWebhook(tenantId: string, workspaceId: string, body: any) {
+    const org = body?.current;
+    if (!org) return { status: 'ok' };
+
+    const integration = await this.getIntegration(tenantId, workspaceId);
+    if (!integration) return { status: 'ok' };
+
+    const token = await this.getValidToken(integration);
+
+    const name = (org.name || '').replace(/\0/g, '');
+    const phone = ((org.cc_email || '').replace(/\0/g, '') || `pipedrive-org-${org.id}`);
+
+    const existing = await this.prisma.contact.findFirst({
+      where: {
+        tenantId,
+        metadata: { path: ['pipedriveOrgId'], equals: org.id },
+      },
+    });
+
+    if (existing) {
+      await this.prisma.contact.update({
+        where: { id: existing.id },
+        data: this.sanitize({
+          name: name || existing.name,
+          metadata: {
+            ...(existing.metadata as any),
+            pipedriveOrgId: org.id,
+            pipedriveOrgUpdatedAt: org.update_time,
+          },
+        }),
+      });
+    } else {
+      await this.prisma.contact.create({
+        data: this.sanitize({
+          tenantId,
+          workspaceId,
+          name: name || 'Pipedrive Organization',
+          phone,
+          metadata: {
+            pipedriveOrgId: org.id,
+            pipedriveOrgCreatedAt: org.add_time,
+          },
+        }),
+      });
+    }
+
+    this.logger.log(`Pipedrive organization ${org.id} synced for tenant ${tenantId}`);
+    return { status: 'ok' };
+  }
+
   private async upsertContactFromPerson(tenantId: string, workspaceId: string, person: any) {
-    const phone = person.phone?.[0]?.value?.replace(/[^0-9]/g, '') || '';
-    const email = person.email?.[0]?.value || '';
+    const phone = person.phone?.[0]?.value?.replace(/[^0-9]/g, '').replace(/\0/g, '') || '';
+    const email = (person.email?.[0]?.value || '').replace(/\0/g, '');
+    const name = (person.name || email || 'Unknown').replace(/\0/g, '');
 
     if (!phone && !email) return null;
 
@@ -495,35 +711,39 @@ export class PipedriveService {
       ? await this.prisma.contact.findUnique({
           where: { tenantId_phone: { tenantId, phone } },
         })
-      : null;
+      : email
+        ? await this.prisma.contact.findFirst({
+            where: { tenantId, email },
+          })
+        : null;
 
     if (existing) {
       return this.prisma.contact.update({
         where: { id: existing.id },
-        data: {
-          name: person.name || existing.name,
+        data: this.sanitize({
+          name: name || existing.name,
           ...(email && { email }),
           metadata: {
             ...(existing.metadata as any),
             pipedrivePersonId: person.id,
             pipedriveUpdatedAt: person.update_time,
           },
-        },
+        }),
       });
     }
 
     return this.prisma.contact.create({
-      data: {
+      data: this.sanitize({
         tenantId,
         workspaceId,
-        name: person.name || phone || email,
-        phone: phone || 'unknown',
+        name,
+        phone: phone || `pipedrive-${person.id}`,
         email: email || undefined,
         metadata: {
           pipedrivePersonId: person.id,
           pipedriveCreatedAt: person.add_time,
         },
-      },
+      }),
     });
   }
 
@@ -541,7 +761,7 @@ export class PipedriveService {
         data: {
           title: deal.title || existing.title,
           value: deal.value ? Number(deal.value) : existing.value,
-          ...(contact && { contactId: contact.id }),
+          contactId: contact.id,
           lastActivityAt: new Date(),
           metadata: {
             ...(existing.metadata as any),
@@ -554,7 +774,17 @@ export class PipedriveService {
       });
     }
 
-    if (!contact) return null;
+    if (!contact) {
+      contact = await this.prisma.contact.create({
+        data: this.sanitize({
+          tenantId,
+          workspaceId,
+          name: deal.title || 'Pipedrive Deal',
+          phone: `pipedrive-deal-${deal.id}`,
+          metadata: { pipedrivePersonId: null },
+        }),
+      });
+    }
 
     const defaultPipeline = await this.prisma.pipeline.findFirst({
       where: { tenantId, workspaceId, isDefault: true },
@@ -639,15 +869,17 @@ export class PipedriveService {
       throw new UnauthorizedException('No refresh token available');
     }
 
+    const params = new URLSearchParams({
+      grant_type: 'refresh_token',
+      refresh_token: integration.refreshToken,
+      client_id: this.clientId,
+      client_secret: this.clientSecret,
+    });
+
     const response = await fetch('https://oauth.pipedrive.com/oauth/token', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        grant_type: 'refresh_token',
-        refresh_token: integration.refreshToken,
-        client_id: this.clientId,
-        client_secret: this.clientSecret,
-      }),
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: params.toString(),
     });
 
     if (!response.ok) {

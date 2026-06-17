@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft,
@@ -68,8 +68,11 @@ const STATUS_STYLES: Record<string, string> = {
   archived: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300',
 };
 
-export default function LeadDetailPage() {
-  const params = useParams();
+export default function LeadDetailPage({
+  params,
+}: {
+  params: { id: string };
+}) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [showMoveMenu, setShowMoveMenu] = useState(false);
@@ -111,6 +114,11 @@ export default function LeadDetailPage() {
     onError: () => toast.error('Erro ao alterar status'),
   });
 
+  const currentPipeline = useMemo(
+    () => (pipelines ?? []).find((p) => p.id === (lead?.pipelineId ?? '')),
+    [pipelines, lead?.pipelineId],
+  );
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -135,11 +143,6 @@ export default function LeadDetailPage() {
       </div>
     );
   }
-
-  const currentPipeline = useMemo(
-    () => (pipelines ?? []).find((p) => p.id === lead.pipelineId),
-    [pipelines, lead.pipelineId],
-  );
 
   const isConverted = lead.status === 'converted';
   const isLost = lead.status === 'lost';

@@ -8,6 +8,7 @@ export type AutomationTriggerType =
   | 'lead_moved'
   | 'lead_created'
   | 'lead_lost'
+  | 'pipedrive.deal_updated'
   | 'contact_tag_added'
   | 'contact_created'
   | 'schedule'
@@ -27,6 +28,7 @@ export type AutomationActionType =
   | 'webhook'
   | 'ai_agent'
   | 'create_lead'
+  | 'create_conversation'
   | 'close_conversation';
 
 export interface AutomationCondition {

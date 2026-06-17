@@ -114,6 +114,15 @@ export class PipedriveController {
     return this.pipedriveService.syncLeads(tenantId, workspaceId);
   }
 
+  @Post('sync/pipelines')
+  @ApiOperation({ summary: 'Sync Pipedrive pipelines and stages to Wave' })
+  syncPipelines(
+    @CurrentUser('tenantId') tenantId: string,
+    @CurrentUser('workspaceId') workspaceId: string,
+  ) {
+    return this.pipedriveService.syncPipelines(tenantId, workspaceId);
+  }
+
   @Post('register-webhook')
   @ApiOperation({ summary: 'Re-register the Pipedrive webhook subscription' })
   @ApiResponse({ status: 200, description: 'Webhook registered successfully' })

@@ -73,6 +73,9 @@ services:
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
       S3_BUCKET: ${S3_BUCKET:-wave-crm-uploads}
       STORAGE_PROVIDER: ${STORAGE_PROVIDER:-local}
+      PIPEDRIVE_CLIENT_ID: ${PIPEDRIVE_CLIENT_ID:-}
+      PIPEDRIVE_CLIENT_SECRET: ${PIPEDRIVE_CLIENT_SECRET:-}
+      PIPEDRIVE_REDIRECT_URI: ${PIPEDRIVE_REDIRECT_URI:-http://localhost:4000/api/v1/pipedrive/oauth/callback}
     ports:
       - "4000:4000"
       - "4001:4001"
